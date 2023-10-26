@@ -30,6 +30,9 @@ let initData = function () {
 let HRsensor = new HeartRateSensor('Polar', (meas) => {
     console.log(meas)
     hrText.innerHTML = "HR: " + meas.heartRate + " bpm"
+    if (testData && testData.startTs) {
+        meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
+    }
     if (testRunning) {
         testData.heartRate.push(meas)
     }
@@ -38,6 +41,9 @@ let HRsensor = new HeartRateSensor('Polar', (meas) => {
 let RSCsensor = new RunningSpeedCadenceSensor('Polar', (meas) => {
     console.log(meas)
     rcsText.innerHTML = "Cadence: " + meas.instantaneousCadence + " fpm"
+    if (testData && testData.startTs) {
+        meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
+    }
     if (testRunning) {
         testData.cadence.push(meas)
     }
@@ -113,7 +119,6 @@ let doTest = async function () {
         orientation.startNotifications((data) => {
             testData.orientation.push(data)
         })
-        testData.startTs = Date.now()
 
         mainText.innerHTML = 'Test started!'
         startButton.innerHTML = 'Stop'
