@@ -85,6 +85,8 @@ connectCadenceBtn.addEventListener('click', async () => {
 
 let testRunning = false
 mainText.textContent = 'Ready to start'
+// Reference for the Wake Lock.
+let wakeLock = null
 
 let doTest = async function () {
     if (!testRunning) {
@@ -107,6 +109,17 @@ let doTest = async function () {
             return
         }
 
+        if ("wakeLock" in navigator) {
+            // request a wake lock
+            try {
+                wakeLock = await navigator.wakeLock.request("screen")
+            } catch (err) {
+                console.errror(err)
+            }
+        } else {
+            subText.textContent = "Wake lock is not supported by this browser"
+        }
+
         // all permission working, start the test
         initData()
         testRunning = true
@@ -123,6 +136,11 @@ let doTest = async function () {
         mainText.textContent = 'Test started!'
         startButton.textContent = 'Stop'
     } else {
+        // release wake lock
+        wakeLock.release().then(() => {
+            wakeLock = null
+        })
+
         testRunning = false
         // stop signals acquisition
         motion.stopNotifications()
