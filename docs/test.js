@@ -29,7 +29,7 @@ let initData = function () {
 
 let HRsensor = new HeartRateSensor('Polar', (meas) => {
     console.log(meas)
-    hrText.innerHTML = "HR: " + meas.heartRate + " bpm"
+    hrText.textContent = "HR: " + meas.heartRate + " bpm"
     if (testData && testData.startTs) {
         meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
     }
@@ -40,7 +40,7 @@ let HRsensor = new HeartRateSensor('Polar', (meas) => {
 
 let RSCsensor = new RunningSpeedCadenceSensor('Polar', (meas) => {
     console.log(meas)
-    rcsText.innerHTML = "Cadence: " + meas.instantaneousCadence + " fpm"
+    rcsText.textContent = "Cadence: " + meas.instantaneousCadence + " fpm"
     if (testData && testData.startTs) {
         meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
     }
@@ -54,14 +54,14 @@ connectHRBtn.addEventListener('click', async () => {
         await HRsensor.connect()
         if (HRsensor.isConnected()) {
             HRsensor.startNotificationsHeartRateMeasurement()
-            connectHRBtn.innerHTML = "Disconnect Heart Rate sensor"
+            connectHRBtn.textContent = "Disconnect Heart Rate sensor"
         }
     } else {
         // HRsensor.stopNotificationsHeartRateMeasurement()
         HRsensor.disconnect()
         if (!HRsensor.isConnected()) {
-            connectHRBtn.innerHTML = "Connect Heart Rate sensor"
-            hrText.innerHTML = " "
+            connectHRBtn.textContent = "Connect Heart Rate sensor"
+            hrText.textContent = " "
         }
     }
 })
@@ -71,20 +71,20 @@ connectCadenceBtn.addEventListener('click', async () => {
         await RSCsensor.connect()
         if (RSCsensor.isConnected()) {
             RSCsensor.startNotificationsRSCMeasurement()
-            connectCadenceBtn.innerHTML = "Disconnect Cadence sensor"
+            connectCadenceBtn.textContent = "Disconnect Cadence sensor"
         }
     } else {
         // RSCsensor.stopNotificationsRSCMeasurement()
         RSCsensor.disconnect()
         if (!RSCsensor.isConnected()) {
-            connectCadenceBtn.innerHTML = "Connect Cadence sensor"
-            rcsText.innerHTML = " "
+            connectCadenceBtn.textContent = "Connect Cadence sensor"
+            rcsText.textContent = " "
         }
     }
 })
 
 let testRunning = false
-mainText.innerHTML = 'Ready to start'
+mainText.textContent = 'Ready to start'
 
 let doTest = async function () {
     if (!testRunning) {
@@ -92,8 +92,8 @@ let doTest = async function () {
             await motion.requestPermission()
         } catch (err) {
             console.error(err)
-            mainText.innerHTML = 'ERROR'
-            subText.innerHTML = 'Motion sensor needs permission, retry'
+            mainText.textContent = 'ERROR'
+            subText.textContent = 'Motion sensor needs permission, retry'
             return
         }
 
@@ -101,8 +101,8 @@ let doTest = async function () {
             await orientation.requestPermission()
         } catch (err) {
             console.error(err)
-            mainText.innerHTML = 'ERROR'
-            subText.innerHTML = 'Orientation sensor needs permission, retry'
+            mainText.textContent = 'ERROR'
+            subText.textContent = 'Orientation sensor needs permission, retry'
             startButton.disabled = false
             return
         }
@@ -120,8 +120,8 @@ let doTest = async function () {
             testData.orientation.push(data)
         })
 
-        mainText.innerHTML = 'Test started!'
-        startButton.innerHTML = 'Stop'
+        mainText.textContent = 'Test started!'
+        startButton.textContent = 'Stop'
     } else {
         testRunning = false
         // stop signals acquisition
@@ -129,8 +129,8 @@ let doTest = async function () {
         orientation.stopNotifications()
 
         testData.endTs = new Date()
-        mainText.innerHTML = 'Test completed, ready to start again'
-        startButton.innerHTML = 'Start'
+        mainText.textContent = 'Test completed, ready to start again'
+        startButton.textContent = 'Start'
 
         console.log(testData)
         var blob = new Blob([JSON.stringify(testData)], { type: "text/json;charset=utf-8" })
@@ -147,21 +147,21 @@ try {
     new Blob
 } catch (e) {
     console.error(e)
-    subText.innerHTML = 'File saving not supported'
+    subText.textContent = 'File saving not supported'
     startButton.style.visibility = 'hidden'
     startButton.disabled = true
 }
 
 // detect motion availability
 if (!motion.isAvailable()) {
-    subText.innerHTML = 'Motion sensor not available'
+    subText.textContent = 'Motion sensor not available'
     startButton.style.visibility = 'hidden'
     startButton.disabled = true
 }
 
 // detect orientation availability
 if (!orientation.isAvailable()) {
-    subText.innerHTML = 'Orientation sensor not available'
+    subText.textContent = 'Orientation sensor not available'
     startButton.style.visibility = 'hidden'
     startButton.disabled = true
 }
