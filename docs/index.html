@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://cdn.rawgit.com/kimeiga/bahunya/css/bahunya-0.1.1.css" />
+</head>
+
+<body>
+    <h2 style="text-align: center;">Data collection web app</h2>
+
+    <main>
+        <article>
+            <h3 id="mainText"></h3>
+            <p id="subText"></p>
+
+            <section>
+                <p id="hrText"></p>
+                <button id="connectHRBtn">Connect Heart Rate sensor</button>
+                <p id="rcsText"></p>
+                <button id="connectCadenceBtn">Connect Cadence sensor</button>
+            </section>
+
+            <section>
+                <p>
+                    <label>Test name:
+                        <input type="text" id="testNameInput" name="testNameInput" value="">
+                    </label>
+                </p>
+                <button id="startBtn">Start</button>
+            </section>
+
+        </article>
+    </main>
+
+    <script src="deps/FileSaver.js"></script>
+    <script type="module" src="phone/motion.js"></script>
+    <script type="module" src="phone/orientation.js"></script>
+    <script type="module" src="ble/bledevice.js"></script>
+    <script type="module" src="ble/heartratesensor.js"></script>
+    <script type="module" src="ble/rscsensor.js"></script>
+    <script type="module" src="test.js"></script>
+</body>
+
+</html>
