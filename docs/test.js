@@ -137,9 +137,11 @@ let doTest = async function () {
         startButton.textContent = 'Stop'
     } else {
         // release wake lock
-        wakeLock.release().then(() => {
-            wakeLock = null
-        })
+        if (wakeLock) {
+            wakeLock.release().then(() => {
+                wakeLock = null
+            })
+        }
 
         testRunning = false
         // stop signals acquisition
