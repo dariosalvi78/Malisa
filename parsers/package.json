@@ -1,0 +1,12 @@
+{
+  "name": "melisa.parsers",
+  "version": "0.0.1",
+  "description": "parsers for the melisa dataset",
+  "type": "module",
+  "main": "generateCSV.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Dario Salvi",
+  "license": "AGPL-3.0-or-later"
+}
