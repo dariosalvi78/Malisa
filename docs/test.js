@@ -1,33 +1,47 @@
 import motion from './phone/motion.js'
 import orientation from './phone/orientation.js'
+
+import accelerometer from './phone/accelerometer.js'
+import linearAccelerometer from './phone/linearAccelerometer.js'
+import gyroscope from './phone/gyroscope.js'
+import magnetometer from './phone/magnetometer.js'
+
 import { HeartRateSensor } from './ble/heartratesensor.js'
 import { RunningSpeedCadenceSensor } from './ble/rscsensor.js'
+import { CyclingSpeedCadenceSensor } from './ble/cscsensor.js'
 
-let connectCadenceBtn = document.getElementById('connectCadenceBtn')
-let connectHRBtn = document.getElementById('connectHRBtn')
-let startButton = document.getElementById('startBtn')
-let mainText = document.getElementById('mainText')
-let subText = document.getElementById('subText')
-let hrText = document.getElementById('hrText')
-let rcsText = document.getElementById('rcsText')
-let testNameInput = document.getElementById('testNameInput')
+const connectRSCBtn = document.getElementById('connectRSCBtn')
+const connectCSCBtn = document.getElementById('connectCSCBtn')
+const connectHRBtn = document.getElementById('connectHRBtn')
+const startButton = document.getElementById('startBtn')
+const mainText = document.getElementById('mainText')
+const subText = document.getElementById('subText')
+const hrText = document.getElementById('hrText')
+const rscText = document.getElementById('rscText')
+const cscText = document.getElementById('cscText')
+const testNameInput = document.getElementById('testNameInput')
 
 
 // object containing the data of the test
 let testData = {}
 // initialization of an empty test data
-let initData = function () {
+const initData = function () {
     testData = {
         startTs: '',
         endTs: '',
         motion: [],
+        accelerationG: [],
+        acceleration: [],
+        rotationRate: [],
+        magneticField: [],
         orientation: [],
         heartRate: [],
-        cadence: []
+        runningCadence: [],
+        cyclingCadence: []
     }
 }
 
-let HRsensor = new HeartRateSensor('Polar', (meas) => {
+const HRsensor = new HeartRateSensor('Polar', (meas) => {
     console.log(meas)
     hrText.textContent = "HR: " + meas.heartRate + " bpm"
     if (testData && testData.startTs) {
@@ -38,14 +52,25 @@ let HRsensor = new HeartRateSensor('Polar', (meas) => {
     }
 })
 
-let RSCsensor = new RunningSpeedCadenceSensor('Polar', (meas) => {
+const RSCsensor = new RunningSpeedCadenceSensor('Polar', (meas) => {
     console.log(meas)
-    rcsText.textContent = "Cadence: " + meas.instantaneousCadence + " fpm"
+    rscText.textContent = "Running: " + meas.instantaneousCadence + " fpm"
     if (testData && testData.startTs) {
         meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
     }
     if (testRunning) {
-        testData.cadence.push(meas)
+        testData.runningCadence.push(meas)
+    }
+})
+
+const CSCsensor = new CyclingSpeedCadenceSensor('BK3', (meas) => {
+    console.log(meas)
+    cscText.textContent = "Cycling: " + meas.cumulativeCrankRevolutions + " cranks"
+    if (testData && testData.startTs) {
+        meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
+    }
+    if (testRunning) {
+        testData.cyclingCadence.push(meas)
     }
 })
 
@@ -66,19 +91,36 @@ connectHRBtn.addEventListener('click', async () => {
     }
 })
 
-connectCadenceBtn.addEventListener('click', async () => {
+connectRSCBtn.addEventListener('click', async () => {
     if (!RSCsensor.isConnected()) {
         await RSCsensor.connect()
         if (RSCsensor.isConnected()) {
             RSCsensor.startNotificationsRSCMeasurement()
-            connectCadenceBtn.textContent = "Disconnect Cadence sensor"
+            connectRSCBtn.textContent = "Disconnect Running sensor"
         }
     } else {
         // RSCsensor.stopNotificationsRSCMeasurement()
         RSCsensor.disconnect()
         if (!RSCsensor.isConnected()) {
-            connectCadenceBtn.textContent = "Connect Cadence sensor"
-            rcsText.textContent = " "
+            connectRSCBtn.textContent = "Connect Running sensor"
+            rscText.textContent = " "
+        }
+    }
+})
+
+connectCSCBtn.addEventListener('click', async () => {
+    if (!CSCsensor.isConnected()) {
+        await CSCsensor.connect()
+        if (CSCsensor.isConnected()) {
+            CSCsensor.startNotificationsCSCMeasurement()
+            connectCSCBtn.textContent = "Disconnect Cycling sensor"
+        }
+    } else {
+        // RSCsensor.stopNotificationsRSCMeasurement()
+        CSCsensor.disconnect()
+        if (!CSCsensor.isConnected()) {
+            connectCSCBtn.textContent = "Connect Cycling sensor"
+            rscText.textContent = " "
         }
     }
 })
@@ -89,24 +131,32 @@ mainText.textContent = 'Ready to start'
 let wakeLock = null
 
 let doTest = async function () {
+    let useSensorsAPI = false
     if (!testRunning) {
-        try {
-            await motion.requestPermission()
-        } catch (err) {
-            console.error(err)
-            mainText.textContent = 'ERROR'
-            subText.textContent = 'Motion sensor needs permission, retry'
-            return
-        }
-
-        try {
-            await orientation.requestPermission()
-        } catch (err) {
-            console.error(err)
-            mainText.textContent = 'ERROR'
-            subText.textContent = 'Orientation sensor needs permission, retry'
-            startButton.disabled = false
-            return
+        if (accelerometer.isAvailable()) {
+            // looks like sensors API is available, let's use this instead of regular motion
+            useSensorsAPI = true
+            try {
+                await accelerometer.requestPermission()
+                if (linearAccelerometer.isAvailable()) await linearAccelerometer.requestPermission()
+                if (gyroscope.isAvailable()) await gyroscope.requestPermission()
+                if (magnetometer.isAvailable()) await magnetometer.requestPermission()
+            } catch (err) {
+                console.error(err)
+                mainText.textContent = 'ERROR'
+                subText.textContent = 'Sensor needs permission, retry'
+                return
+            }
+        } else {
+            try {
+                await motion.requestPermission()
+                await orientation.requestPermission()
+            } catch (err) {
+                console.error(err)
+                mainText.textContent = 'ERROR'
+                subText.textContent = 'Sensor needs permission, retry'
+                return
+            }
         }
 
         if ("wakeLock" in navigator) {
@@ -126,12 +176,35 @@ let doTest = async function () {
         testData.startTs = new Date()
 
         // start acquiring signals
-        motion.startNotifications((data) => {
-            testData.motion.push(data)
-        })
-        orientation.startNotifications((data) => {
-            testData.orientation.push(data)
-        })
+        if (useSensorsAPI) {
+            await accelerometer.startNotifications(60, (data) => {
+                testData.accelerationG.push(data)
+            })
+
+            if (linearAccelerometer.isAvailable()) {
+                await linearAccelerometer.startNotifications(60, (data) => {
+                    testData.acceleration.push(data)
+                })
+            }
+
+            if (gyroscope.isAvailable()) {
+                await gyroscope.startNotifications(60, (data) => {
+                    testData.rotationRate.push(data)
+                })
+            }
+            if (magnetometer.isAvailable()) {
+                await magnetometer.startNotifications(60, (data) => {
+                    testData.magneticField.push(data)
+                })
+            }
+        } else {
+            motion.startNotifications((data) => {
+                testData.motion.push(data)
+            })
+            orientation.startNotifications((data) => {
+                testData.orientation.push(data)
+            })
+        }
 
         mainText.textContent = 'Test started!'
         startButton.textContent = 'Stop'
@@ -147,6 +220,10 @@ let doTest = async function () {
         // stop signals acquisition
         motion.stopNotifications()
         orientation.stopNotifications()
+        accelerometer.stopNotifications()
+        linearAccelerometer.stopNotifications()
+        gyroscope.stopNotifications()
+        magnetometer.stopNotifications()
 
         testData.endTs = new Date()
         mainText.textContent = 'Test completed, ready to start again'

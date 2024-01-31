@@ -17,7 +17,7 @@ export class RunningSpeedCadenceSensor extends BleDevice {
 
     /**
      * @callback RSCcallback
-     * @param {RSCMeasurement} rcs - running speed and cadence measurement
+     * @param {RSCMeasurement} rsc - running speed and cadence measurement
      */
 
     /**
