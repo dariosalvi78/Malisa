@@ -19,7 +19,7 @@ export default {
      * @returns {boolean} true if available
      */
     isAvailable () {
-        if (typeof Gyroscope === "function") {
+        if (typeof Magnetometer === "function") {
             return true
         } else return false
     },
@@ -50,7 +50,7 @@ export default {
 
         return new Promise((resolve, reject) => {
             try {
-                this.accelerometer = new Magnetometer({ referenceFrame: "device", frequency: freq })
+                this.magnetometer = new Magnetometer({ referenceFrame: "device", frequency: freq })
                 this.magnetometer.addEventListener("error", (event) => {
                     reject(event.error)
                 })

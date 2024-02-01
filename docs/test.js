@@ -1,11 +1,6 @@
 import motion from './phone/motion.js'
 import orientation from './phone/orientation.js'
 
-import accelerometer from './phone/accelerometer.js'
-import linearAccelerometer from './phone/linearAccelerometer.js'
-import gyroscope from './phone/gyroscope.js'
-import magnetometer from './phone/magnetometer.js'
-
 import { HeartRateSensor } from './ble/heartratesensor.js'
 import { RunningSpeedCadenceSensor } from './ble/rscsensor.js'
 import { CyclingSpeedCadenceSensor } from './ble/cscsensor.js'
@@ -30,10 +25,6 @@ const initData = function () {
         startTs: '',
         endTs: '',
         motion: [],
-        accelerationG: [],
-        acceleration: [],
-        rotationRate: [],
-        magneticField: [],
         orientation: [],
         heartRate: [],
         runningCadence: [],
@@ -131,32 +122,15 @@ mainText.textContent = 'Ready to start'
 let wakeLock = null
 
 let doTest = async function () {
-    let useSensorsAPI = false
     if (!testRunning) {
-        if (accelerometer.isAvailable()) {
-            // looks like sensors API is available, let's use this instead of regular motion
-            useSensorsAPI = true
-            try {
-                await accelerometer.requestPermission()
-                if (linearAccelerometer.isAvailable()) await linearAccelerometer.requestPermission()
-                if (gyroscope.isAvailable()) await gyroscope.requestPermission()
-                if (magnetometer.isAvailable()) await magnetometer.requestPermission()
-            } catch (err) {
-                console.error(err)
-                mainText.textContent = 'ERROR'
-                subText.textContent = 'Sensor needs permission, retry'
-                return
-            }
-        } else {
-            try {
-                await motion.requestPermission()
-                await orientation.requestPermission()
-            } catch (err) {
-                console.error(err)
-                mainText.textContent = 'ERROR'
-                subText.textContent = 'Sensor needs permission, retry'
-                return
-            }
+        try {
+            await motion.requestPermission()
+            await orientation.requestPermission()
+        } catch (err) {
+            console.error(err)
+            mainText.textContent = 'ERROR'
+            subText.textContent = 'Sensor needs permission, retry'
+            return
         }
 
         if ("wakeLock" in navigator) {
@@ -176,35 +150,12 @@ let doTest = async function () {
         testData.startTs = new Date()
 
         // start acquiring signals
-        if (useSensorsAPI) {
-            await accelerometer.startNotifications(60, (data) => {
-                testData.accelerationG.push(data)
-            })
-
-            if (linearAccelerometer.isAvailable()) {
-                await linearAccelerometer.startNotifications(60, (data) => {
-                    testData.acceleration.push(data)
-                })
-            }
-
-            if (gyroscope.isAvailable()) {
-                await gyroscope.startNotifications(60, (data) => {
-                    testData.rotationRate.push(data)
-                })
-            }
-            if (magnetometer.isAvailable()) {
-                await magnetometer.startNotifications(60, (data) => {
-                    testData.magneticField.push(data)
-                })
-            }
-        } else {
-            motion.startNotifications((data) => {
-                testData.motion.push(data)
-            })
-            orientation.startNotifications((data) => {
-                testData.orientation.push(data)
-            })
-        }
+        motion.startNotifications((data) => {
+            testData.motion.push(data)
+        })
+        orientation.startNotifications((data) => {
+            testData.orientation.push(data)
+        })
 
         mainText.textContent = 'Test started!'
         startButton.textContent = 'Stop'
@@ -220,10 +171,6 @@ let doTest = async function () {
         // stop signals acquisition
         motion.stopNotifications()
         orientation.stopNotifications()
-        accelerometer.stopNotifications()
-        linearAccelerometer.stopNotifications()
-        gyroscope.stopNotifications()
-        magnetometer.stopNotifications()
 
         testData.endTs = new Date()
         mainText.textContent = 'Test completed, ready to start again'
