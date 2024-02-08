@@ -54,9 +54,15 @@ const RSCsensor = new RunningSpeedCadenceSensor('Polar', (meas) => {
     }
 })
 
+let firstCSCrevolutions = -1
+
 const CSCsensor = new CyclingSpeedCadenceSensor('BK3', (meas) => {
     console.log(meas)
-    cscText.textContent = "Cycling: " + meas.cumulativeCrankRevolutions + " cranks"
+    if (firstCSCrevolutions == -1) firstCSCrevolutions = meas.cumulativeCrankRevolutions
+
+    let revs = meas.cumulativeCrankRevolutions - firstCSCrevolutions
+    cscText.textContent = "Cycling: " + revs + " cranks"
+
     if (testData && testData.startTs) {
         meas.msFromStart = new Date().getTime() - testData.startTs.getTime()
     }
@@ -149,7 +155,10 @@ let doTest = async function () {
         testRunning = true
         testData.startTs = new Date()
 
-        // start acquiring signals
+        // reset csc revolutions counter
+        firstCSCrevolutions = -1
+
+        // start acquiring IMU signals
         motion.startNotifications((data) => {
             testData.motion.push(data)
         })
@@ -177,24 +186,43 @@ let doTest = async function () {
         startButton.textContent = 'Start'
 
         console.log(testData)
-        var blob = new Blob([JSON.stringify(testData)], { type: "text/json;charset=utf-8" })
 
-        let filename = 'testResults_' + testNameInput.value + '.json'
-        saveAs(blob, filename)
+        const testName = testNameInput.value
+        let filename = 'test' + testName + '_' + new Date().getTime() + '.json'
+        const file = new File([JSON.stringify(testData)], filename, {
+            type: 'text/json',
+        })
+
+        let message = {
+            title: 'Test ' + testName + ' results',
+            text: 'This file contains a test done on ' + new Date(),
+            files: [file],
+        }
+
+        if (navigator.canShare(message)) {
+            await navigator.share(message);
+        } else {
+            mainText.textContent = 'Cannot share file'
+        }
     }
 }
 
 
 
 // detect file saving capability
-try {
-    new Blob
-} catch (e) {
-    console.error(e)
+const testfile = new File(['test'], "testresults.json", {
+    type: "text/json",
+})
+if ((typeof navigator.share !== 'function') || !navigator.canShare({
+    title: "Test results",
+    text: "This file contains a test done on " + new Date(),
+    files: [testfile],
+})) {
     subText.textContent = 'File saving not supported'
     startButton.style.visibility = 'hidden'
     startButton.disabled = true
 }
+
 
 // detect motion availability
 if (!motion.isAvailable()) {
