@@ -188,9 +188,9 @@ let doTest = async function () {
         console.log(testData)
 
         const testName = testNameInput.value
-        let filename = 'test' + testName + '_' + new Date().getTime() + '.json'
+        let filename = 'test' + testName + '_' + new Date().getTime() + '.txt'
         const file = new File([JSON.stringify(testData)], filename, {
-            type: 'text/json',
+            type: 'text/plain',
         })
 
         let message = {
