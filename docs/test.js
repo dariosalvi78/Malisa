@@ -1,5 +1,6 @@
 import motion from './phone/motion.js'
 import orientation from './phone/orientation.js'
+import geolocation from './phone/geolocation.js'
 
 import { HeartRateSensor } from './ble/heartratesensor.js'
 import { RunningSpeedCadenceSensor } from './ble/rscsensor.js'
@@ -28,7 +29,8 @@ const initData = function () {
         orientation: [],
         heartRate: [],
         runningCadence: [],
-        cyclingCadence: []
+        cyclingCadence: [],
+        geolocation: []
     }
 }
 
@@ -132,6 +134,7 @@ let doTest = async function () {
         try {
             await motion.requestPermission()
             await orientation.requestPermission()
+            await geolocation.requestPermission()
         } catch (err) {
             console.error(err)
             mainText.textContent = 'ERROR'
@@ -165,6 +168,9 @@ let doTest = async function () {
         orientation.startNotifications((data) => {
             testData.orientation.push(data)
         })
+        geolocation.startNotifications(1000, (data) => {
+            testData.geolocation.push(data)
+        })
 
         mainText.textContent = 'Test started!'
         startButton.textContent = 'Stop'
@@ -180,6 +186,7 @@ let doTest = async function () {
         // stop signals acquisition
         motion.stopNotifications()
         orientation.stopNotifications()
+        geolocation.stopNotifications()
 
         testData.endTs = new Date()
         mainText.textContent = 'Test completed, ready to start again'
