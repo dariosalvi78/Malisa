@@ -2,6 +2,9 @@
 Simple web applications to collect data from sensors and Bluetooth standard devices.
 
 The website must be served on https (secure context).
+You can access the tool from: https://dariosalvi78.github.io/Malisa/ 
+
+For local testing it's a good idea to use something like [localias](https://github.com/peterldowns/localias) to be able to use https locally.
 
 ## App for mobile phones
 
