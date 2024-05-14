@@ -70,7 +70,21 @@ export default {
         }
 
         this.watchId = navigator.geolocation.watchPosition((loc) => {
-            cbk(loc)
+            // crete a copy of the object, otherwise for some reason it cannot be serialised
+            /** @type {Location} */
+            let newloc = {
+                coords: {
+                    latitude: loc.coords.latitude,
+                    longitude: loc.coords.longitude,
+                    altitude: loc.coords.altitude,
+                    accuracy: loc.coords.accuracy,
+                    altitudeAccuracy: loc.coords.altitudeAccuracy,
+                    heading: loc.coords.heading,
+                    speed: loc.coords.speed
+                },
+                timestamp: loc.timestamp
+            }
+            cbk(newloc)
         }, (err) => {
             console.error(err)
         }, options)
