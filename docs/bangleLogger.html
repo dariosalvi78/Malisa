@@ -31,28 +31,30 @@
 
         var BANGLE_CODE = `
 var start = Date.now()
+Bluetooth.println("I," + start);
+
 Bangle.on('accel',function(a) {
   var d = [
     "A",
     Date.now() - start,
-    Math.round(a.x*1000),
-    Math.round(a.y*1000),
-    Math.round(a.z*1000)
+    Math.round(a.x * 8192),
+    Math.round(a.y * 8192),
+    Math.round(a.z * 8192)
     ];
   Bluetooth.println(d.join(","));
 })
 
-Bangle.setCompassPower(1);
-Bangle.on('mag', function(mag) {
-    var d = [
-      "C",
-      Date.now() - start,
-      mag.x,
-      mag.y,
-      mag.z
-      ];
-    Bluetooth.println(d.join(","));
-});
+// Bangle.setCompassPower(1);
+// Bangle.on('mag', function(mag) {
+//     var d = [
+//       "C",
+//       Date.now() - start,
+//       mag.x,
+//       mag.y,
+//       mag.z
+//       ];
+//     Bluetooth.println(d.join(","));
+// });
 
 Bangle.on('step', function(up) {
     var d = [
@@ -63,8 +65,9 @@ Bangle.on('step', function(up) {
     Bluetooth.println(d.join(","));
 });
 
-Bangle.setHRMPower(1)
-  Bangle.on('HRM',function(hrm) {
+Bangle.setHRMPower(1);
+// HR values
+Bangle.on('HRM',function(hrm) {
     var d = [
       "H",
       Date.now() - start,
@@ -72,7 +75,26 @@ Bangle.setHRMPower(1)
       hrm.confidence
       ];
     Bluetooth.println(d.join(","));
-  })
+});
+// PPG
+Bangle.on('HRM-raw',function(hrm) {
+    var d = [
+      "G",
+      Date.now() - start,
+      hrm.raw
+      ];
+    Bluetooth.println(d.join(","));
+});
+
+// environment light (when LED of PPG is off)
+Bangle.on('HRM-env', function(env) { 
+    var d = [
+      "E",
+      Date.now() - start,
+      env
+      ];
+    Bluetooth.println(d.join(","));
+ });
 
 // let lastPressure = -1
 // Bangle.setBarometerPower(true);
@@ -141,6 +163,8 @@ Bangle.setHRMPower(1)
                     result.pressure = []
                     result.steps = []
                     result.hr = []
+                    result.ppg = []
+                    result.environment = []
                     // Handle the data we get back, and call 'onLine'
                     // whenever we get a new line
                     var buf = "";
@@ -171,6 +195,9 @@ Bangle.setHRMPower(1)
         function onLine (line) {
             // console.log("RECEIVED:" + line);
             var d = line.split(",");
+            if (d.length == 2 && d[0] == "I") {
+                result.startTs = d[1]
+            }
             if (d.length == 5 && d[0] == "A") {
                 // we have an accelerometer reading
                 var accel = {
@@ -212,8 +239,24 @@ Bangle.setHRMPower(1)
                 }
                 result.hr.push(hr_data)
             }
+            if (d.length == 3 && d[0] == "G") {
+                // ppg
+                var ppg = {
+                    ms: parseInt(d[1]),
+                    ppg: parseInt(d[2])
+                }
+                result.ppg.push(ppg)
+            }
+            if (d.length == 3 && d[0] == "E") {
+                // environment
+                var env = {
+                    ms: parseInt(d[1]),
+                    light: parseInt(d[2])
+                }
+                result.environment.push(env)
+            }
             if (d.length == 4 && d[0] == "P") {
-                // we have an HR monitor reading
+                // we have pressure
                 var press = {
                     ms: parseInt(d[1]),
                     temp: parseInt(d[2]),
