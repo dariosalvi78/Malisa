@@ -36,7 +36,7 @@ Bluetooth.println("I," + start);
 Bangle.on('accel',function(a) {
   var d = [
     "A",
-    Date.now() - start,
+    Math.round(Date.now() - start),
     Math.round(a.x * 8192),
     Math.round(a.y * 8192),
     Math.round(a.z * 8192)
@@ -48,7 +48,7 @@ Bangle.on('accel',function(a) {
 // Bangle.on('mag', function(mag) {
 //     var d = [
 //       "C",
-//       Date.now() - start,
+//       Math.round(Date.now() - start),
 //       mag.x,
 //       mag.y,
 //       mag.z
@@ -59,7 +59,7 @@ Bangle.on('accel',function(a) {
 Bangle.on('step', function(up) {
     var d = [
       "S",
-      Date.now() - start,
+      Math.round(Date.now() - start),
       up
       ];
     Bluetooth.println(d.join(","));
@@ -70,7 +70,7 @@ Bangle.setHRMPower(1);
 Bangle.on('HRM',function(hrm) {
     var d = [
       "H",
-      Date.now() - start,
+      Math.round(Date.now() - start),
       hrm.bpm,
       hrm.confidence
       ];
@@ -80,7 +80,7 @@ Bangle.on('HRM',function(hrm) {
 Bangle.on('HRM-raw',function(hrm) {
     var d = [
       "G",
-      Date.now() - start,
+      Math.round(Date.now() - start),
       hrm.raw
       ];
     Bluetooth.println(d.join(","));
@@ -90,7 +90,7 @@ Bangle.on('HRM-raw',function(hrm) {
 Bangle.on('HRM-env', function(env) { 
     var d = [
       "E",
-      Date.now() - start,
+      Math.round(Date.now() - start),
       env
       ];
     Bluetooth.println(d.join(","));
@@ -106,7 +106,7 @@ Bangle.on('HRM-env', function(env) {
 //     }
 //     var d = [
 //       "P",
-//       Date.now() - start,
+//       Math.round(Date.now() - start),
 //       Math.round(pr.temperature*10),
 //       Math.round((pr.pressure - lastPressure) *10000)
 //       ];
