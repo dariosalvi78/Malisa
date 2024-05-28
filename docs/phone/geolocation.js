@@ -64,7 +64,7 @@ export default {
     async startNotifications (period, cbk) {
 
         let options = {
-            enableHighAccuracy: false,
+            enableHighAccuracy: true,
             timeout: period,
             maximumAge: 0,
         }
