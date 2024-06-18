@@ -12,8 +12,10 @@ export class BleDevice {
 
     /**
     * Scans for devices and connects to the sensor
+    * @param {string} namePrefix - prefix for the name of the device to be found
+    * @param {string} serviceName - service we want to connect to
     */
-    async connect (namePrefix, serviceName, characteristicName, onDisconnected) {
+    async connect (namePrefix, serviceName, characteristicNames, onDisconnected) {
         this.device = await navigator.bluetooth.requestDevice({
             filters: [
                 { namePrefix },
@@ -24,7 +26,15 @@ export class BleDevice {
 
         this.server = await this.device.gatt.connect()
         let service = await this.server.getPrimaryService(serviceName)
-        await this.cacheCharacteristic(service, characteristicName)
+        if (Array.isArray(characteristicNames)) {
+            for (let name of characteristicNames) {
+                await this.cacheCharacteristic(service, name)
+
+            }
+        } else if (typeof characteristicNames === 'string') {
+            await this.cacheCharacteristic(service, characteristicNames)
+        }
+
     }
 
     /**
