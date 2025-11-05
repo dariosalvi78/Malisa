@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://cdn.rawgit.com/kimeiga/bahunya/css/bahunya-0.1.1.css" />
+</head>
+
+<body>
+    <h2 style="text-align: center;">Test Jstyle</h2>
+    <p>Testing the <a href="https://www.jointcorp.com/smart-watch-manufacturer/Smart-Watch-with-ECG.html">JStyle 2025E</a> (and compatible) communication</p>
+
+    <main>
+        <article>
+            <h3 id="mainText"></h3>
+            <p id="subText"></p>
+
+            <section>
+                <button id="connectJSBtn">Connect</button>
+            </section>
+
+
+            <section>
+                <h4>Device information</h4>
+                <button id="deviceNameBtn">Get device name</button>
+                <button id="deviceMACBtn">Get device MAC</button>
+                <button id="deviceVerBtn">Get device ver</button>
+                <button id="batteryBtn">Get battery</button>
+            </section>
+
+            <section>
+                <h4>Device configuration</h4>
+                <button id="devicegetTimeBtn">Get time</button>
+                <button id="deviceSetTimeBtn">Set time</button>
+                <button id="getUserProfileBtn">Get user profile</button>
+                <button id="setUserProfileBtn">Set user profile</button>
+                <button id="setAutoModeBtn">Set auto mode</button>
+            </section>
+
+            <section>
+                <h4>Device data</h4>
+                <div>
+                    Get data from:
+                    <input type="date" id="fromDateIn" placeholder="Get data from" />
+                </div>
+                
+                <button id="dailyActivitySummaryHistoryBtn">Get daily activity summary history</button>
+                <button style="background-color: #ec7e66;" id="deleteDailyActivitySummaryHistoryBtn">Delete daily activity summary history</button>
+                <br>
+                <button id="detailedActivityHistoryBtn">Get detailed activity history</button>
+                <button style="background-color: #ec7e66;" id="deleteDetailedActivityHistoryBtn">Delete detailed activity history</button>
+                <br>
+                <button id="detailedHR">Get detailed HR history</button>
+                <button style="background-color: #ec7e66;" id="deleteDetailedHRHistoryBtn">Delete detailed HR history</button>
+                <br>
+                <button id="getHRHistory">Get HR history</button>
+                <button style="background-color: #ec7e66;" id="deleteHRHistoryBtn">Delete HR history</button>
+                <br>
+                <button id="getHRVHistoryBtn">Get HRV history</button>
+                <button style="background-color: #ec7e66;" id="deleteHRVHistoryBtn">Delete HRV history</button>
+                <br>
+                <button id="getTemperatureHistoryBtn">Get Temperature history</button>
+                <button style="background-color: #ec7e66;" id="deleteTemperatureHistoryBtn">Delete Temperature history</button>
+                <br>
+                <button id="getSPO2HistoryBtn">Get SPO2 history</button>
+                <button style="background-color: #ec7e66;" id="deleteSPO2HistoryBtn">Delete SPO2 history</button>
+                <br>
+                <button id="getSleepHistoryBtn">Get Sleep history</button>
+                <button style="background-color: #ec7e66;" id="deleteSleepHistoryBtn">Delete sleep history</button>
+                
+                <br>
+                <button style="background-color: #f44336;" id="clearDataBtn">Clear all data</button>
+            </section>
+
+            <section>
+                <h4>Output</h4>
+                <p id="outputText"></p>
+            </section>
+
+        </article>
+    </main>
+
+    <script type="module" src="ble/JStyle2025.js"></script>
+    <script type="module">
+
+        import { JStyle2025 } from './ble/JStyle2025.js'
+
+        const connectJSBtn = document.getElementById('connectJSBtn')
+        const fromDateIn = document.getElementById('fromDateIn')
+        
+        const deviceNameBtn = document.getElementById('deviceNameBtn')
+        const deviceMACBtn = document.getElementById('deviceMACBtn')
+        const deviceVerBtn = document.getElementById('deviceVerBtn')
+        const batteryBtn = document.getElementById('batteryBtn')
+        const devicegetTimeBtn = document.getElementById('devicegetTimeBtn')
+        const deviceSetTimeBtn = document.getElementById('deviceSetTimeBtn')
+        const getUserProfileBtn = document.getElementById('getUserProfileBtn')
+        const setUserProfileBtn = document.getElementById('setUserProfileBtn')
+        const setAutoModeBtn = document.getElementById('setAutoModeBtn')
+        
+        const clearDataBtn = document.getElementById('clearDataBtn')
+        
+        const dailyActivitySummaryHistoryBtn = document.getElementById('dailyActivitySummaryHistoryBtn')
+        const deleteDailyActivitySummaryHistoryBtn = document.getElementById('deleteDailyActivitySummaryHistoryBtn')
+
+        const detailedActivityHistoryBtn = document.getElementById('detailedActivityHistoryBtn')
+        const deleteDetailedActivityHistoryBtn = document.getElementById('deleteDetailedActivityHistoryBtn')
+
+        const detailedHRBtn = document.getElementById('detailedHR')
+        const deleteDetailedHRHistoryBtn = document.getElementById('deleteDetailedHRHistoryBtn')
+
+        const getHRHistoryBtn = document.getElementById('getHRHistory')
+        const deleteHRHistoryBtn = document.getElementById('deleteHRHistoryBtn')
+
+        const getHRVHistoryBtn = document.getElementById('getHRVHistoryBtn')
+        const deleteHRVHistoryBtn = document.getElementById('deleteHRVHistoryBtn')
+
+        const getTemperatureHistoryBtn = document.getElementById('getTemperatureHistoryBtn')
+        const deleteTemperatureHistoryBtn = document.getElementById('deleteTemperatureHistoryBtn')
+
+        const getSPO2HistoryBtn = document.getElementById('getSPO2HistoryBtn')
+        const deleteSPO2HistoryBtn = document.getElementById('deleteSPO2HistoryBtn')
+
+        const getSleepHistoryBtn = document.getElementById('getSleepHistoryBtn')
+        const deleteSleepHistoryBtn = document.getElementById('deleteSleepHistoryBtn')
+
+        const outputText = document.getElementById('outputText')
+
+
+        let device
+
+
+        connectJSBtn.addEventListener('click', async () => {
+
+            if (!device || !device.isConnected()) {
+                let jstyle = await JStyle2025.findjStyleByName('J2113')
+                if (!jstyle) {
+                    outputText.textContent = "No JStyle selected."
+                    return
+                }
+
+                device = jstyle
+
+                await device.connect(()=> {
+                    // disconnected callback
+                    connectJSBtn.textContent = "Connect"
+                    outputText.textContent = "Disconnected from device"
+                    device = null
+                })
+                if (device.isConnected()) {
+                    connectJSBtn.textContent = "Disconnect"
+                }
+            } else {
+                device.disconnect()
+                connectJSBtn.textContent = "Connect"
+                device = null
+            }
+        })
+
+        deviceNameBtn.addEventListener('click', async () => {
+            let name = await device.getName()
+            outputText.textContent = "Device name: " + name
+        })
+
+        deviceMACBtn.addEventListener('click', async () => {
+            let mac = await device.getMACAddress()
+            outputText.textContent = "Device MAC: " + mac
+        })
+
+        deviceVerBtn.addEventListener('click', async () => {
+            let version = await device.getDeviceVersion()
+            outputText.textContent = "Version: " + version
+        })
+
+        batteryBtn.addEventListener('click', async () => {
+            let batt = await device.getBatteryLevel()
+            outputText.textContent = "Battery level: " + batt
+        })
+
+        devicegetTimeBtn.addEventListener('click', async () => {
+            let time = await device.getTime()
+            outputText.textContent = "Time: " + JSON.stringify(time)
+        })
+
+        deviceSetTimeBtn.addEventListener('click', async () => {
+            let now = new Date()
+            await device.setTime(now)
+            outputText.textContent = "Time set: " + now
+        })
+
+        getUserProfileBtn.addEventListener('click', async () => {
+            let up = await device.getUserProfile()
+            outputText.textContent = "User profile: " + JSON.stringify(up)
+        })
+
+        setUserProfileBtn.addEventListener('click', async () => {
+            /**@type {UserProfile} **/
+            let up = {
+                gender: 1,
+                age: 45,
+                height: 178,
+                weight: 85,
+                strideLength: 70
+            }
+            await device.setUserProfile(up)
+            outputText.textContent = "Use profile set: " + JSON.stringify(up)
+        })
+
+        setAutoModeBtn.addEventListener('click', async () => {
+            await device.setAutoMode(0, 0, 23, 59, 5, 1) // Enable auto HR every 5 minutes
+            const autoHR = await device.getAutoMode(1)
+            outputText.textContent = "Auto HR enabled: " + JSON.stringify(autoHR)
+
+            await device.setAutoMode(0, 0, 23, 59, 5, 2) // Enable auto SPO2 every 5 minutes
+            const autoSPO2 = await device.getAutoMode(2)
+            outputText.textContent += "Auto SPO2 enabled: " + JSON.stringify(autoSPO2)
+
+            await device.setAutoMode(0, 0, 23, 59, 5, 3) // Enable auto temperature every 5 minutes
+            const autoTemp = await device.getAutoMode(3)
+            outputText.textContent += "Auto temperature enabled: " + JSON.stringify(autoTemp)
+
+            await device.setAutoMode(0, 0, 23, 59, 5, 4) // Enable auto HRV every 5 minutes
+            const autoHRV = await device.getAutoMode(4)
+            outputText.textContent += "Auto HRV enabled: " + JSON.stringify(autoHRV)
+        })
+
+        clearDataBtn.addEventListener('click', async () => {
+            await device.clearData()
+            outputText.textContent = "Data wiped out"
+        })
+
+        dailyActivitySummaryHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getDailyActivitySummaryHistory(fromDate)
+            outputText.textContent = "Activity history: " + JSON.stringify(history)
+        })
+
+        deleteDailyActivitySummaryHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteDailyActivitySummaryHistory(fromDate)
+            outputText.textContent = "Daily activity summary history deleted from: " + fromDate.toISOString()
+        })
+
+        detailedActivityHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getDetailedActivityHistory(fromDate)
+            outputText.textContent = "Detailed activity history: " + JSON.stringify(history)
+        })
+
+        deleteDetailedActivityHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteDetailedActivityHistory(fromDate)
+            outputText.textContent = "Detailed activity history deleted from: " + fromDate.toISOString()
+        })
+
+        detailedHRBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getDetailedHRHistory(fromDate)
+            outputText.textContent = "Detailed HR history: " + JSON.stringify(history)
+        })
+
+        deleteDetailedHRHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteDetailedHRHistory(fromDate)
+            outputText.textContent = "Detailed HR history deleted from: " + fromDate.toISOString()
+        })
+
+        getHRHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getHRHistory(fromDate)
+            outputText.textContent = "HR history: " + JSON.stringify(history)
+        })
+
+        deleteHRHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteHRHistory(fromDate)
+            outputText.textContent = "HR history deleted from: " + fromDate.toISOString()
+        })
+
+        getHRVHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getHRVHistory(fromDate)
+            outputText.textContent = "HRV history: " + JSON.stringify(history)
+        })
+
+        deleteHRVHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteHRVHistory(fromDate)
+            outputText.textContent = "HRV history deleted from: " + fromDate.toISOString()
+        })
+
+        getTemperatureHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getTemperatureHistory(fromDate)
+            outputText.textContent = "Temperature history: " + JSON.stringify(history)
+        })
+
+        deleteTemperatureHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteTemperatureHistory(fromDate)
+            outputText.textContent = "Temperature history deleted from: " + fromDate.toISOString()
+        })
+
+        getSPO2HistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getSPO2History(fromDate)
+            outputText.textContent = "SPO2 history: " + JSON.stringify(history)
+        })
+
+        deleteSPO2HistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteSPO2History(fromDate)
+            outputText.textContent = "SPO2 history deleted from: " + fromDate.toISOString()
+        })
+
+        getSleepHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            let history = await device.getSleepHistory(fromDate)
+            outputText.textContent = "Sleep history: " + JSON.stringify(history)
+        })
+
+        deleteSleepHistoryBtn.addEventListener('click', async () => {
+            let fromDate = fromDateIn.valueAsDate
+            await device.deleteSleepHistory(fromDate)
+            outputText.textContent = "Sleep history deleted from: " + fromDate.toISOString()
+        })
+
+    </script>
+</body>
+
+</html>

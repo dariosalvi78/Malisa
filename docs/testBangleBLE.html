@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://cdn.rawgit.com/kimeiga/bahunya/css/bahunya-0.1.1.css" />
+</head>
+
+<body>
+    <h2 style="text-align: center;">Test Jstyle</h2>
+
+    <main>
+        <article>
+            <h3 id="mainText"></h3>
+            <p id="subText"></p>
+
+            <section>
+                <p id="start"></p>
+                <button id="connectBtn">Connect</button>
+            </section>
+
+            <section>
+
+                <p id="outputText"></p>
+            </section>
+
+        </article>
+    </main>
+
+    <script type="module">
+
+        const connectBtn = document.getElementById('connectBtn')
+        const outputText = document.getElementById('outputText')
+
+        let connected = false
+        let device
+
+        const serviceuuid = 'be36bebe-aeeb-482a-b0a8-177143ce50fc'
+        const characteristicuuid = '521e2c6e-5555-4b85-af45-f8e2edeeeafa'
+
+        connectBtn.addEventListener('click', async () => {
+
+            if (connected) {
+                device.gatt.disconnect()
+                connectBtn.textContent = "Connect"
+                connected = false
+            } else {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: 'bangle' },
+                        { services: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e'] }
+                    ],
+                    optionalServices: [serviceuuid]
+                })
+                let server = await device.gatt.connect()
+                connected = true
+                connectBtn.textContent = "Disconnect"
+
+
+                let service = await server.getPrimaryService(serviceuuid)
+                let characteristic = await service.getCharacteristic(characteristicuuid)
+
+                // send a command
+                // let outData = new Uint8Array(1)
+                // outData[0] = 1 // 1 means: read the file
+                // characteristic.writeValue(value)
+
+                characteristic.addEventListener('characteristicvaluechanged', (event) => {
+                    let value = event.target.value
+                    // In Chrome 50+, a DataView is returned instead of an ArrayBuffer.
+                    value = value.buffer ? value : new DataView(value)
+                    let mydata = value.getUint8(0)
+
+                    // let indx = 0
+                    // let timestamp = value.getUint32(indx,  /*littleEndian=*/true)
+                    // indx += 4
+                    // let steps = value.getUint8(indx)
+                    // indx += 1
+
+                    outputText.textContent = mydata
+                })
+
+                await characteristic.startNotifications()
+            }
+        })
+
+
+    </script>
+</body>
+
+</html>
