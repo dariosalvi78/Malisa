@@ -17,6 +17,11 @@
             <p id="subText"></p>
 
             <section>
+                <label for="deviceSelect">Choose a device name:</label>
+                <select id="deviceSelect">
+                    <option value="J2113">J2113</option>
+                    <option value="J2025">J2025</option>
+                </select>
                 <button id="connectJSBtn">Connect</button>
             </section>
 
@@ -134,7 +139,8 @@
         connectJSBtn.addEventListener('click', async () => {
 
             if (!device || !device.isConnected()) {
-                let jstyle = await JStyle2025.findjStyleByName('J2113')
+                let deviceName = document.getElementById('deviceSelect').value
+                let jstyle = await JStyle2025.findjStyleByName(deviceName)
                 if (!jstyle) {
                     outputText.textContent = "No JStyle selected."
                     return
