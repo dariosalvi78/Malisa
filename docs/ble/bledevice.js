@@ -1,117 +1,171 @@
 /**
  * Base class for BLE devices.
- * Adapted from https://github.com/WebBluetoothCG/demos/blob/gh-pages/heart-rate-sensor/heartRateSensor.js
+ * Uses the WEB BLE API.
  */
-export class BleDevice {
-    constructor() {
-        this.device = null
+export class BLEDevice {
+
+    // eslint-disable-next-line space-before-function-paren
+    constructor(device) {
+        this.device = device
         this.server = null
-        this.characteristics = new Map()
-        this.callbacks = new Map()
+        this.GATTcallbacks = new Map()
+    }
+
+    #addNotificationsCallback (serviceUUID, characteristicUUID, callback) {
+        let key = `${serviceUUID}-${characteristicUUID}`
+        this.GATTcallbacks.set(key, callback)
+    }
+
+    #getNotificationsCallback (serviceUUID, characteristicUUID) {
+        let key = `${serviceUUID}-${characteristicUUID}`
+        return this.GATTcallbacks.get(key)
+    }
+
+    #removeNotificationsCallback (serviceUUID, characteristicUUID) {
+        let key = `${serviceUUID}-${characteristicUUID}`
+        this.GATTcallbacks.delete(key)
+    }
+
+    getName () {
+        return this.device.name
+    }
+
+    getId () {
+        return this.device.id
     }
 
     /**
-    * Scans for devices and connects to the sensor
-    * @param {string} namePrefix - prefix for the name of the device to be found
-    * @param {string} serviceName - service we want to connect to
-    */
-    async connect (namePrefix, serviceName, characteristicNames, onDisconnected) {
-        this.device = await navigator.bluetooth.requestDevice({
+     * Tells if BLE is available
+     * @returns {Promise{boolean}} returns a promise with true if available
+     */
+    static async isAvailable () {
+        return navigator.bluetooth.getAvailability()
+    }
+
+    /**
+     * Requests permission to access Bluetooth.
+     * This is a no-op in the WEB BLE API, as permissions are requested during device discovery.
+     */
+    static async requestPermission () {
+        return Promise.resolve(true)
+    }
+
+    /**
+     * Finds BLE a device given a name prefix and a list of service UUIDs.
+     * In WEB BLE, the user has to select the device, which means that only one device will be returned.
+     * @param {string} namePrefix - prefix of a name
+     * @param {Array<string>} serviceNames - UUIDs
+     * @returns {Promise<BLEDevice>} one BLEDevice
+     */
+    static async findDeviceByName (namePrefix, serviceNames) {
+        let dev = await navigator.bluetooth.requestDevice({
             filters: [
                 { namePrefix },
-                { services: [serviceName] }
+                { services: serviceNames }
             ]
         })
-        if (onDisconnected) device.addEventListener('gattserverdisconnected', onDisconnected)
 
-        this.server = await this.device.gatt.connect()
-        let service = await this.server.getPrimaryService(serviceName)
-        if (Array.isArray(characteristicNames)) {
-            for (let name of characteristicNames) {
-                await this.cacheCharacteristic(service, name)
-
-            }
-        } else if (typeof characteristicNames === 'string') {
-            await this.cacheCharacteristic(service, characteristicNames)
-        }
-
+        return new BLEDevice(dev)
     }
 
     /**
-     * Tells if the device is currently connected
-     * @returns {boolean} true if the device is connected
+     * Connects to the device
+     * @param {Function} disconnectCallback - called when the device disconnects
+     * @returns {Promise}
      */
-    isConnected () {
-        if (this.device && this.device.gatt) return this.device.gatt.connected
-        else return false
+    async connect (disconnectCallback) {
+        this.server = await this.device.gatt.connect()
+        this.device.addEventListener('gattserverdisconnected', disconnectCallback)
     }
 
     /**
      * Disconnects the device
+     * @returns {Promise}
      */
-    disconnect () {
-        if (this.device.gatt.connected) {
+    async disconnect () {
+        if (this.device && this.device.gatt.connected) {
             this.device.gatt.disconnect()
         }
     }
 
     /**
-     * Stores a characteristic to be used lated
-     * @param {*} service - BLE service
-     * @param {string} characteristicUuid - UUID of the characteristic
-     * @returns {PromiseLike}
+     * Tells if the device is currently connecte
+     * @returns {Promise<boolean>}
      */
-    async cacheCharacteristic (service, characteristicUuid) {
-        let characteristic = await service.getCharacteristic(characteristicUuid)
-        this.characteristics.set(characteristicUuid, characteristic)
+    async isConnected () {
+        if (!this.device) return false
+        if (this.device && this.device.gatt) return this.device.gatt.connected
+        else return false
+    }
+
+    /**
+     * Starts notifications on a given service / characteristic
+     * @param {string} serviceUUID - service UUID
+     * @param {string} characteristicUUID - characteristic UUID
+     * @param {Function} dataCallback - called each time new data arrives
+     * @returns {Promise}
+     */
+    async startNotifications (serviceUUID, characteristicUUID, dataCallback) {
+        const service = await this.server.getPrimaryService(serviceUUID)
+        const characteristic = await service.getCharacteristic(characteristicUUID)
+
+        this.#addNotificationsCallback(serviceUUID, characteristicUUID, dataCallback)
+        characteristic.addEventListener('characteristicvaluechanged', dataCallback)
+
+        return characteristic.startNotifications()
+    }
+
+    /**
+     * Stops notifications of a given service and characteristic
+     * @param {string} serviceUUID - service identifier
+     * @param {string} characteristicUUID - characteristic identifier
+     * @returns {Promise}
+     */
+    async stopNotifications (serviceUUID, characteristicUUID) {
+        const service = await this.server.getPrimaryService(serviceUUID)
+        const characteristic = await service.getCharacteristic(characteristicUUID)
+        await characteristic.stopNotifications()
+
+        let callback = this.#getNotificationsCallback(serviceUUID, characteristicUUID)
+        characteristic.removeEventListener('characteristicvaluechanged', callback)
+        this.#removeNotificationsCallback(serviceUUID, characteristicUUID)
     }
 
     /**
      * Reads a characteristic
-     * @param {string} characteristicUuid - UUID of the characteristic
-     * @returns {PromiseLike}
+     * @param {string} serviceUUID - service identifier
+     * @param {string} characteristicUUID - characteristic identifier
+     * @returns {Promise}
      */
-    async readCharacteristicValue (characteristicUuid) {
-        let characteristic = this.characteristics.get(characteristicUuid)
-        let value = await characteristic.readValue()
-        // In Chrome 50+, a DataView is returned instead of an ArrayBuffer.
-        value = value.buffer ? value : new DataView(value)
-        return value
+    async readCharacteristic (serviceUUID, characteristicUUID) {
+        const service = await this.server.getPrimaryService(serviceUUID)
+        const characteristic = await service.getCharacteristic(characteristicUUID)
+        return characteristic.readValue()
     }
 
     /**
-     * Writes a characteristic
-     * @param {string} characteristicUuid - UUID of the characteristic
-     * @param {*} value - value to be written
-     * @returns 
+     * Writes the characteristic and waits for a response
+     * @param {string} serviceUUID - service identifier
+     * @param {string} characteristicUUID - characteristic identifier
+     * @param {ArrayBuffer} data - contains the data to be sent
+     * @returns {Promise}
      */
-    async writeCharacteristicValue (characteristicUuid, value) {
-        let characteristic = this.characteristics.get(characteristicUuid)
-        return characteristic.writeValue(value)
+    async writeCharacteristic (serviceUUID, characteristicUUID, data) {
+        const service = await this.server.getPrimaryService(serviceUUID)
+        const characteristic = await service.getCharacteristic(characteristicUUID)
+        return characteristic.writeValue(data)
     }
 
     /**
-     * Registers a callback to the notifications of a charecteristic
-     * @param {string} characteristicUuid 
-     * @param {*} callback 
-     * @returns {PromiseLike}
+     * Writes the characteristic without waiting for a response
+     * @param {string} serviceUUID - service identifier
+     * @param {string} characteristicUUID - characteristic identifier
+     * @param {ArrayBuffer} data - contains the data to be sent
+     * @returns {Promise}
      */
-    async startNotifications (characteristicUuid, callback) {
-        let characteristic = this.characteristics.get(characteristicUuid)
-        await characteristic.startNotifications()
-        this.callbacks.set(characteristicUuid, callback)
-        characteristic.addEventListener('characteristicvaluechanged', callback)
-    }
-
-    /**
-     * Stops notifications and deregister the callback
-     * @param {string} characteristicUuid 
-     * @returns {PromiseLike}
-     */
-    async stopNotifications (characteristicUuid) {
-        let characteristic = this.characteristics.get(characteristicUuid)
-        await characteristic.stopNotifications()
-        let callback = this.callbacks.get(characteristicUuid)
-        characteristic.removeEventListener('characteristicvaluechanged', callback)
+    async writeCharacteristicWithoutResponse (serviceUUID, characteristicUUID, data) {
+        const service = await this.server.getPrimaryService(serviceUUID)
+        const characteristic = await service.getCharacteristic(characteristicUUID)
+        return characteristic.writeValueWithoutResponse(data)
     }
 }
