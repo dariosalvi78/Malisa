@@ -177,10 +177,8 @@ export class JStyle2025 extends BLEDevice {
                 let cmd = btvalues.getUint8(0)
 
                 if (this.#replyCallbacks[cmd]) {
-                    console.log('<- Got data', value)
                     this.#replyCallbacks[cmd](btvalues)
                 } else if (this.#streamCallbacks[cmd]) {
-                    // high-rate streams: no per-packet logging
                     this.#streamCallbacks[cmd](btvalues)
                 } else {
                     console.error('No callback for command ' + cmd)
@@ -1422,32 +1420,39 @@ export class JStyle2025 extends BLEDevice {
     }
 
     /**
-     * @typedef {Object} ECGPPGQuality - periodic values sent by the watch during ECG/PPG streaming
+     * @typedef {Object} ECGHR - periodic values sent by the watch during the ECG measurement
      * @property {number} hr - heart rate in bpm
      * @property {number} hrv - heart rate variability
      * @property {number} quality - signal quality
      */
 
     /**
-     * Status codes returned by the watch when starting ECG + PPG streaming
+     * @typedef {Object} ECGStatus - status packet sent by the watch during / at the end of the ECG measurement
+     * @property {number} status - status code, only 3 (measurement completed, has results) is documented
+     * @property {string} [date] - date of the measurement as YYYY-MM-DD hh:mm
+     * @property {Object} [result] - measurement results, only when status is 3
+     * @property {number} result.hrv - heart rate variability
+     * @property {number} result.vascularAging - vascular age
+     * @property {number} result.hr - heart rate in bpm
+     * @property {number} result.fatigue - fatigue degree
+     * @property {number} result.highBP - systolic blood pressure
+     * @property {number} result.lowBP - diastolic blood pressure
+     * @property {number} result.mood - mood value
+     * @property {number} result.breath - breathing rate
      */
-    static ECGPPG_START_STATUS = {
-        0: 'started',
-        1: 'already in ECG/PPG mode',
-        2: 'device is in sport mode',
-        3: 'device is charging',
-        4: 'device is in SOS mode',
-        5: 'device is in UI upgrade mode'
-    }
 
     /**
-     * Parses raw ECG / PPG packets: big-endian signed int16 samples starting at byte 1.
-     * Mirrors the Android demo app: len/2 - 1 samples, the trailing byte is ignored.
-     * @param {DataView} btvalues - packet
-     * @returns {Array<number>} samples, as sent by the watch (no inversion)
+     * ECG sampling rate, as used by the iOS and Android SDK demos
      */
-    #parseInt16BESamples (btvalues) {
-        const n = Math.floor(btvalues.byteLength / 2) - 1
+    static ECG_SAMPLE_RATE = 512
+
+    /**
+     * Parses a raw ECG packet, as done by the iOS SDK: big-endian signed int16 samples starting at byte 1
+     * @param {DataView} btvalues - packet
+     * @returns {Array<number>} samples, as sent by the watch
+     */
+    #parseECGSamples (btvalues) {
+        const n = Math.floor((btvalues.byteLength - 1) / 2)
         const samples = new Array(Math.max(n, 0))
         for (let i = 0; i < n; i++) {
             samples[i] = btvalues.getInt16(1 + 2 * i, false)
@@ -1455,94 +1460,109 @@ export class JStyle2025 extends BLEDevice {
         return samples
     }
 
-    #removeECGPPGStreamCallbacks () {
+    /**
+     * Parses an ECG status packet (0x9C)
+     * @param {DataView} btvalues - packet
+     * @returns {ECGStatus}
+     */
+    #parseECGStatus (btvalues) {
+        const status = { status: btvalues.getUint8(1) }
+        if (btvalues.byteLength >= 15) {
+            // BCD encoded YY MM DD hh mm, byte 15 is the CRC (the Android SDK wrongly reads it as seconds)
+            const bcd = (i) => btvalues.getUint8(i).toString(16).padStart(2, '0')
+            status.date = '20' + bcd(10) + '-' + bcd(11) + '-' + bcd(12) + ' ' + bcd(13) + ':' + bcd(14)
+        }
+        if (status.status === 3) {
+            status.result = {
+                hrv: btvalues.getUint8(2),
+                vascularAging: btvalues.getUint8(3),
+                hr: btvalues.getUint8(4),
+                fatigue: btvalues.getUint8(5),
+                highBP: btvalues.getUint8(6),
+                lowBP: btvalues.getUint8(7),
+                mood: btvalues.getUint8(8),
+                breath: btvalues.getUint8(9)
+            }
+        }
+        return status
+    }
+
+    #removeECGStreamCallbacks () {
         delete this.#streamCallbacks[CMDS.ecgRaw]
-        delete this.#streamCallbacks[CMDS.ppgRaw]
-        delete this.#streamCallbacks[CMDS.ecgQuality]
-        delete this.#streamCallbacks[CMDS.stopECGPPG]
+        delete this.#streamCallbacks[CMDS.ecgHR]
+        delete this.#streamCallbacks[CMDS.ecgStatus]
+        delete this.#streamCallbacks[CMDS.stopECG]
     }
 
     /**
-     * Starts live streaming of raw ECG and PPG (they are always started together).
-     * Samples are passed as sent by the watch, without any inversion.
-     * @param {number} durationSec - duration of the measurement in seconds (1-65535), the watch stops by itself afterwards
+     * Starts the live ECG measurement, same command as the iOS SDK StartECGMode (0x99 with all zeros).
+     * The measurement runs until stopECGStream() is called or the watch stops it.
      * @param {Object} callbacks
-     * @param {Function} [callbacks.onECG] - called with (samples: Array<number>, packet: DataView) for each ECG packet
-     * @param {Function} [callbacks.onPPG] - called with (samples: Array<number>, packet: DataView) for each PPG packet
-     * @param {Function} [callbacks.onQuality] - called with an ECGPPGQuality object
-     * @param {Function} [callbacks.onEnd] - called when the watch stops the streaming by itself
-     * @param {number} [level=4] - undocumented level byte, the Android demo app uses 4 (must be non zero)
-     * @returns {Promise<number>} - status code from the watch, 0 or 1 mean streaming is active
+     * @param {Function} [callbacks.onECG] - called with an array of raw samples (as sent by the watch) for each packet
+     * @param {Function} [callbacks.onHR] - called with an ECGHR object
+     * @param {Function} [callbacks.onStatus] - called with an ECGStatus object
+     * @param {Function} [callbacks.onEnd] - called when the watch stops the measurement by itself
+     * @param {number} [callbacks.durationSec] - EXPERIMENTAL: duration written in bytes 3-4 (little endian), as the Android SDK
+     *   OpenECGPPG does. The iOS SDK sends no duration; the watch records about 30 s of ECG and then sends the results (status 3).
+     *   Not verified that the watch honours this value.
+     * @returns {Promise<void>} - resolves when the command is sent and acknowledged
      */
-    async startECGPPGStream (durationSec, { onECG, onPPG, onQuality, onEnd } = {}, level = 4) {
-        if (!Number.isInteger(durationSec) || durationSec < 1 || durationSec > 0xffff) {
-            throw new Error('Duration must be an integer between 1 and 65535 seconds')
-        }
-        if (level < 1 || level > 0xff) {
-            throw new Error('Level must be between 1 and 255')
+    async startECGStream ({ onECG, onHR, onStatus, onEnd, durationSec } = {}) {
+        let startDV = null
+        if (durationSec) {
+            if (!Number.isInteger(durationSec) || durationSec < 1 || durationSec > 0xffff) {
+                throw new Error('Duration must be an integer between 1 and 65535 seconds')
+            }
+            // [0, 0, duration LSB, duration MSB]
+            startDV = new DataView(new ArrayBuffer(4))
+            startDV.setUint16(2, durationSec, true)
         }
 
-        // register stream handlers before starting, so that no packet is lost
+        // register the stream handlers before starting, so that no packet is lost
         this.#streamCallbacks[CMDS.ecgRaw] = (btvalues) => {
-            if (onECG) onECG(this.#parseInt16BESamples(btvalues), btvalues)
+            if (onECG) onECG(this.#parseECGSamples(btvalues))
         }
-        this.#streamCallbacks[CMDS.ppgRaw] = (btvalues) => {
-            if (onPPG) onPPG(this.#parseInt16BESamples(btvalues), btvalues)
-        }
-        this.#streamCallbacks[CMDS.ecgQuality] = (btvalues) => {
-            if (onQuality) {
-                onQuality({
+        this.#streamCallbacks[CMDS.ecgHR] = (btvalues) => {
+            if (onHR) {
+                onHR({
                     hr: btvalues.getUint8(1),
                     hrv: btvalues.getUint8(2),
                     quality: btvalues.getUint8(3)
                 })
             }
         }
-        // stop received without us asking: the watch ended the measurement
-        this.#streamCallbacks[CMDS.stopECGPPG] = () => {
-            console.log('ECG/PPG streaming stopped by the watch')
-            this.#removeECGPPGStreamCallbacks()
+        this.#streamCallbacks[CMDS.ecgStatus] = (btvalues) => {
+            if (onStatus) onStatus(this.#parseECGStatus(btvalues))
+        }
+        // stop received without asking for it: the watch ended the measurement
+        this.#streamCallbacks[CMDS.stopECG] = () => {
+            this.#removeECGStreamCallbacks()
             if (onEnd) onEnd()
         }
 
-        // [level, 0, duration LSB, duration MSB]
-        const startDV = new DataView(new ArrayBuffer(4))
-        startDV.setUint8(0, level)
-        startDV.setUint16(2, durationSec, true)
-
-        let replyPromise = this.#waitForReply(CMDS.startECGPPG).then((btvalues) => {
-            const status = btvalues.getUint8(1)
-            console.log('ECG/PPG start status: ' + status)
-            return status
-        })
+        let replyPromise = this.#waitForReply(CMDS.startECG)
         try {
-            await this.#sendCommand(CMDS.startECGPPG, startDV)
-            const status = await replyPromise
-            if (status !== 0 && status !== 1) {
-                this.#removeECGPPGStreamCallbacks()
-                const msg = JStyle2025.ECGPPG_START_STATUS[status] || ('unknown status ' + status)
-                throw new Error('Cannot start ECG/PPG: ' + msg)
-            }
-            return status
+            await this.#sendCommand(CMDS.startECG, startDV)
+            await replyPromise
         } catch (err) {
-            this.#removeECGPPGStreamCallbacks()
-            throw err || new Error('No reply to ECG/PPG start command')
+            this.#removeECGStreamCallbacks()
+            throw err || new Error('No reply to the ECG start command')
         }
     }
 
     /**
-     * Stops live ECG + PPG streaming
+     * Stops the live ECG measurement (iOS SDK StopECGMode, 0x98 with all zeros)
      * @returns {Promise<void>} - resolves when the watch confirms (or after the reply timeout)
      */
-    async stopECGPPGStream () {
-        let replyPromise = this.#waitForReply(CMDS.stopECGPPG)
+    async stopECGStream () {
+        let replyPromise = this.#waitForReply(CMDS.stopECG)
         try {
-            await this.#sendCommand(CMDS.stopECGPPG)
+            await this.#sendCommand(CMDS.stopECG)
             await replyPromise
         } catch (err) {
-            console.warn('No confirmation for ECG/PPG stop')
+            console.warn('No confirmation of the ECG stop command')
         } finally {
-            this.#removeECGPPGStreamCallbacks()
+            this.#removeECGStreamCallbacks()
         }
     }
 

@@ -6,19 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="https://cdn.rawgit.com/kimeiga/bahunya/css/bahunya-0.1.1.css" />
     <style>
-        .streamCanvas {
+        #ecgCanvas {
             display: block;
             width: 100%;
-            height: 180px;
+            height: 220px;
             background: #fff;
             border: 1px solid #ccc;
-            margin-bottom: 1em;
-        }
-        .streamHeader {
-            display: flex;
-            gap: 1.5em;
-            align-items: center;
-            margin-top: 0.5em;
+            margin: 0.5em 0 1em 0;
         }
     </style>
 </head>
@@ -90,31 +84,25 @@
             </section>
 
             <section>
-                <h4>Live ECG / PPG</h4>
-                <p>ECG and PPG are started together. Values are stored and exported as sent by the watch; "invert" only affects the plots.</p>
-                <div>
-                    Duration (s):
-                    <input type="number" id="ecgDurationIn" value="90" min="1" max="65535" step="1" style="width: 7em;" />
-                    <button id="startECGPPGBtn">Start ECG + PPG</button>
-                    <button style="background-color: #ec7e66;" id="stopECGPPGBtn" disabled>Stop</button>
-                    <button id="downloadECGPPGBtn" disabled>Download CSV</button>
-                </div>
+                <h4>Live ECG</h4>
+                <p>Start the measurement and touch the electrode. Samples are stored and exported as sent by the watch; filter and invert only affect the plot.</p>
+                <button id="startECGBtn">Start ECG</button>
+                <button style="background-color: #ec7e66;" id="stopECGBtn" disabled>Stop ECG</button>
+                <button id="downloadECGBtn" disabled>Download CSV</button>
+                <label>Duration (s, experimental):
+                    <input type="number" id="ecgDurationIn" min="1" max="65535" step="1" placeholder="watch default" style="width: 9em;" />
+                </label>
+                <label><input type="checkbox" id="filterECGIn" checked /> filter 0.5 Hz –</label>
+                <select id="lowpassECGIn" style="width: auto;">
+                    <option value="10" selected>10 Hz</option>
+                    <option value="15">15 Hz</option>
+                    <option value="25">25 Hz</option>
+                    <option value="40">40 Hz</option>
+                </select>
+                <label><input type="checkbox" id="invertECGIn" /> invert</label>
                 <p id="ecgStatusText">Not streaming</p>
-                <p id="ecgQualityText">HR: – · HRV: – · Quality: –</p>
-
-                <div class="streamHeader">
-                    <strong>ECG</strong>
-                    <span id="ecgRateText">0 samples</span>
-                    <label><input type="checkbox" id="invertECGIn" /> invert</label>
-                </div>
-                <canvas id="ecgCanvas" class="streamCanvas"></canvas>
-
-                <div class="streamHeader">
-                    <strong>PPG</strong>
-                    <span id="ppgRateText">0 samples</span>
-                    <label><input type="checkbox" id="invertPPGIn" /> invert</label>
-                </div>
-                <canvas id="ppgCanvas" class="streamCanvas"></canvas>
+                <p id="ecgInfoText"></p>
+                <canvas id="ecgCanvas"></canvas>
             </section>
 
             <section>
@@ -188,7 +176,7 @@
 
                 await device.connect(()=> {
                     // disconnected callback
-                    if (streaming) endStreaming('Disconnected')
+                    if (ecgStreaming) endECG('Disconnected')
                     connectJSBtn.textContent = "Connect"
                     outputText.textContent = "Disconnected from device"
                     device = null
@@ -372,106 +360,139 @@
         })
 
 
-        // ---------------- Live ECG / PPG ----------------
+        // ---------------- Live ECG ----------------
 
+        const startECGBtn = document.getElementById('startECGBtn')
+        const stopECGBtn = document.getElementById('stopECGBtn')
+        const downloadECGBtn = document.getElementById('downloadECGBtn')
+        const filterECGIn = document.getElementById('filterECGIn')
+        const lowpassECGIn = document.getElementById('lowpassECGIn')
         const ecgDurationIn = document.getElementById('ecgDurationIn')
-        const startECGPPGBtn = document.getElementById('startECGPPGBtn')
-        const stopECGPPGBtn = document.getElementById('stopECGPPGBtn')
-        const downloadECGPPGBtn = document.getElementById('downloadECGPPGBtn')
-        const ecgStatusText = document.getElementById('ecgStatusText')
-        const ecgQualityText = document.getElementById('ecgQualityText')
         const invertECGIn = document.getElementById('invertECGIn')
-        const invertPPGIn = document.getElementById('invertPPGIn')
+        const ecgStatusText = document.getElementById('ecgStatusText')
+        const ecgInfoText = document.getElementById('ecgInfoText')
+        const ecgCanvas = document.getElementById('ecgCanvas')
 
-        const ECG_NOMINAL_HZ = 512 // from the Android demo app
-        const PPG_NOMINAL_HZ = 100 // unknown, only used to size the plot window before the rate is measured
-        const N_PACKETS_TO_LOG = 3 // first packets of each stream logged as hex, to verify the format
+        const ECG_FS = JStyle2025.ECG_SAMPLE_RATE
+        const ECG_WINDOW_SEC = 5
 
-        /**
-         * Holds all samples of one stream (for CSV export) plus a display window
-         */
-        function createStream (name, canvasId, rateTextId, invertIn, windowSec, nominalHz) {
-            return {
-                name,
-                canvas: document.getElementById(canvasId),
-                rateText: document.getElementById(rateTextId),
-                invertIn,
-                windowSec,
-                nominalHz,
-                values: [], // all samples, raw
+        // display-only filter: 1st order high-pass 0.5 Hz (baseline wander) followed by a
+        // 2nd order Butterworth low-pass (biquad, RBJ cookbook) with selectable cutoff
+        const HP_RC = 1 / (2 * Math.PI * 0.5)
+        const HP_A = HP_RC / (HP_RC + 1 / ECG_FS)
+
+        function makeECGFilter (lpCutoffHz) {
+            const w0 = 2 * Math.PI * lpCutoffHz / ECG_FS
+            const alpha = Math.sin(w0) / (2 * Math.SQRT1_2) // Q = 1/sqrt(2)
+            const cosw0 = Math.cos(w0)
+            const a0 = 1 + alpha
+            const b0 = (1 - cosw0) / 2 / a0
+            const b1 = (1 - cosw0) / a0
+            const b2 = b0
+            const a1 = -2 * cosw0 / a0
+            const a2 = (1 - alpha) / a0
+            // state
+            let hpPrevX = null
+            let hpPrevY = 0
+            let x1 = 0, x2 = 0, y1 = 0, y2 = 0
+            return (x) => {
+                if (hpPrevX === null) hpPrevX = x
+                const hp = HP_A * (hpPrevY + x - hpPrevX)
+                hpPrevX = x
+                hpPrevY = hp
+                const y = b0 * hp + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+                x2 = x1
+                x1 = hp
+                y2 = y1
+                y1 = y
+                return y
+            }
+        }
+
+        let ecgStreaming = false
+        let ecgStart = 0
+        let ecgAnimationId = null
+        let ecg = null
+
+        function resetECG () {
+            ecg = {
+                raw: [], // samples as sent by the watch
+                filtered: [], // display only
                 times: [], // packet arrival time (ms since start) for each sample
-                packets: 0,
-                lastRateCheck: { t: 0, n: 0 },
+                filter: makeECGFilter(parseFloat(lowpassECGIn.value)),
                 rate: 0,
-                reset () {
-                    this.values = []
-                    this.times = []
-                    this.packets = 0
-                    this.lastRateCheck = { t: 0, n: 0 }
-                    this.rate = 0
-                }
+                rateCheck: { t: 0, n: 0 },
+                hr: null,
+                status: null
+            }
+        }
+        resetECG()
+
+        // re-filters the whole recording, e.g. when the cutoff changes
+        function refilterECG () {
+            ecg.filter = makeECGFilter(parseFloat(lowpassECGIn.value))
+            ecg.filtered = ecg.raw.map(ecg.filter)
+        }
+
+        function addECGSamples (samples) {
+            const t = performance.now() - ecgStart
+            for (const x of samples) {
+                ecg.raw.push(x)
+                ecg.filtered.push(ecg.filter(x))
+                ecg.times.push(t)
             }
         }
 
-        const ecgStream = createStream('ECG', 'ecgCanvas', 'ecgRateText', invertECGIn, 5, ECG_NOMINAL_HZ)
-        const ppgStream = createStream('PPG', 'ppgCanvas', 'ppgRateText', invertPPGIn, 10, PPG_NOMINAL_HZ)
-
-        let streaming = false
-        let streamStart = 0
-        let autoStopTimer = null
-        let animationId = null
-
-        function toHex (dv) {
-            let s = []
-            for (let i = 0; i < dv.byteLength; i++) s.push(dv.getUint8(i).toString(16).padStart(2, '0'))
-            return s.join(' ')
+        function updateECGInfo () {
+            const now = performance.now() - ecgStart
+            // the rate is only updated while streaming, so that the last value stays visible after stop
+            if (ecgStreaming && now - ecg.rateCheck.t >= 1000) {
+                ecg.rate = (ecg.raw.length - ecg.rateCheck.n) * 1000 / (now - ecg.rateCheck.t)
+                ecg.rateCheck = { t: now, n: ecg.raw.length }
+            }
+            let text = ecg.raw.length + ' samples (' + (ecg.raw.length / ECG_FS).toFixed(1) + ' s) · ' + ecg.rate.toFixed(0) + ' Hz'
+            if (ecg.hr) text += ' · HR: ' + ecg.hr.hr + ' · HRV: ' + ecg.hr.hrv + ' · quality: ' + ecg.hr.quality
+            if (ecg.status) {
+                text += ' · watch status: ' + ecg.status.status
+                if (ecg.status.result) text += ' · results: ' + JSON.stringify(ecg.status.result)
+            }
+            ecgInfoText.textContent = text
         }
 
-        function addSamples (stream, samples, packet) {
-            const t = performance.now() - streamStart
-            if (stream.packets < N_PACKETS_TO_LOG) {
-                console.log(stream.name + ' packet #' + stream.packets + ', length ' + packet.byteLength + ', ' + samples.length + ' samples: ' + toHex(packet))
-            }
-            stream.packets++
-            for (const v of samples) {
-                stream.values.push(v)
-                stream.times.push(t)
-            }
-        }
-
-        function updateRate (stream, now) {
-            const elapsed = now - stream.lastRateCheck.t
-            if (elapsed >= 1000) {
-                stream.rate = (stream.values.length - stream.lastRateCheck.n) * 1000 / elapsed
-                stream.lastRateCheck = { t: now, n: stream.values.length }
-            }
-            stream.rateText.textContent = stream.values.length + ' samples · ' + stream.rate.toFixed(1) + ' Hz'
-        }
-
-        function drawStream (stream) {
-            const canvas = stream.canvas
+        function drawECG () {
             const dpr = window.devicePixelRatio || 1
-            const w = Math.round(canvas.clientWidth * dpr)
-            const h = Math.round(canvas.clientHeight * dpr)
-            if (canvas.width !== w || canvas.height !== h) {
-                canvas.width = w
-                canvas.height = h
+            const w = Math.round(ecgCanvas.clientWidth * dpr)
+            const h = Math.round(ecgCanvas.clientHeight * dpr)
+            if (ecgCanvas.width !== w || ecgCanvas.height !== h) {
+                ecgCanvas.width = w
+                ecgCanvas.height = h
             }
-            const ctx = canvas.getContext('2d')
+            const ctx = ecgCanvas.getContext('2d')
             ctx.clearRect(0, 0, w, h)
 
-            // number of samples in the window, from the measured rate once available
-            const hz = stream.rate > 1 ? stream.rate : stream.nominalHz
-            const nWin = Math.max(2, Math.round(hz * stream.windowSec))
-            const start = Math.max(0, stream.values.length - nWin)
-            const n = stream.values.length - start
+            // 1 s grid
+            const nWin = ECG_FS * ECG_WINDOW_SEC
+            const stepX = w / (nWin - 1)
+            ctx.strokeStyle = '#eee'
+            ctx.lineWidth = 1
+            for (let s = 1; s < ECG_WINDOW_SEC; s++) {
+                const x = Math.round(s * ECG_FS * stepX) + 0.5
+                ctx.beginPath()
+                ctx.moveTo(x, 0)
+                ctx.lineTo(x, h)
+                ctx.stroke()
+            }
+
+            const data = filterECGIn.checked ? ecg.filtered : ecg.raw
+            const start = Math.max(0, data.length - nWin)
+            const n = data.length - start
             if (n < 2) return
 
-            const sign = stream.invertIn.checked ? -1 : 1
+            const sign = invertECGIn.checked ? -1 : 1
             let min = Infinity
             let max = -Infinity
-            for (let i = start; i < stream.values.length; i++) {
-                const v = sign * stream.values[i]
+            for (let i = start; i < data.length; i++) {
+                const v = sign * data[i]
                 if (v < min) min = v
                 if (v > max) max = v
             }
@@ -479,16 +500,15 @@
                 max += 1
                 min -= 1
             }
-            const pad = 6 * dpr
+            const pad = 8 * dpr
             const scaleY = (h - 2 * pad) / (max - min)
-            const stepX = w / (nWin - 1)
 
-            ctx.strokeStyle = stream.name === 'ECG' ? '#d32f2f' : '#1976d2'
+            ctx.strokeStyle = '#d32f2f'
             ctx.lineWidth = 1.5 * dpr
             ctx.beginPath()
             for (let i = 0; i < n; i++) {
                 const x = i * stepX
-                const y = h - pad - (sign * stream.values[start + i] - min) * scaleY
+                const y = h - pad - (sign * data[start + i] - min) * scaleY
                 if (i === 0) ctx.moveTo(x, y)
                 else ctx.lineTo(x, y)
             }
@@ -496,100 +516,94 @@
 
             ctx.fillStyle = '#666'
             ctx.font = (11 * dpr) + 'px sans-serif'
-            ctx.fillText(max.toString(), 4 * dpr, 12 * dpr)
-            ctx.fillText(min.toString(), 4 * dpr, h - 4 * dpr)
+            ctx.fillText(Math.round(max).toString(), 4 * dpr, 12 * dpr)
+            ctx.fillText(Math.round(min).toString(), 4 * dpr, h - 4 * dpr)
         }
 
-        function renderLoop () {
-            const now = performance.now() - streamStart
-            for (const s of [ecgStream, ppgStream]) {
-                updateRate(s, now)
-                drawStream(s)
-            }
-            if (streaming) animationId = requestAnimationFrame(renderLoop)
+        function ecgRenderLoop () {
+            updateECGInfo()
+            drawECG()
+            if (ecgStreaming) ecgAnimationId = requestAnimationFrame(ecgRenderLoop)
         }
 
-        function endStreaming (message) {
-            streaming = false
-            clearTimeout(autoStopTimer)
-            autoStopTimer = null
-            startECGPPGBtn.disabled = false
-            stopECGPPGBtn.disabled = true
-            downloadECGPPGBtn.disabled = (ecgStream.values.length + ppgStream.values.length) === 0
+        function endECG (message) {
+            ecgStreaming = false
+            if (ecgAnimationId) cancelAnimationFrame(ecgAnimationId)
+            ecgAnimationId = null
+            startECGBtn.disabled = false
+            stopECGBtn.disabled = true
+            downloadECGBtn.disabled = ecg.raw.length === 0
             ecgStatusText.textContent = message
-            if (animationId) cancelAnimationFrame(animationId)
-            animationId = null
-            renderLoop() // final draw
+            ecgRenderLoop() // final draw
         }
 
-        startECGPPGBtn.addEventListener('click', async () => {
+        startECGBtn.addEventListener('click', async () => {
             if (!device) {
                 ecgStatusText.textContent = 'Connect to a device first'
                 return
             }
-            const duration = parseInt(ecgDurationIn.value, 10)
-            if (!Number.isInteger(duration) || duration < 1 || duration > 65535) {
-                ecgStatusText.textContent = 'Duration must be between 1 and 65535 seconds'
-                return
-            }
-
-            ecgStream.reset()
-            ppgStream.reset()
-            ecgQualityText.textContent = 'HR: – · HRV: – · Quality: –'
-            startECGPPGBtn.disabled = true
-            downloadECGPPGBtn.disabled = true
+            const durationSec = ecgDurationIn.value ? parseInt(ecgDurationIn.value, 10) : undefined
+            resetECG()
+            startECGBtn.disabled = true
+            downloadECGBtn.disabled = true
             ecgStatusText.textContent = 'Starting…'
-            streamStart = performance.now()
-
+            ecgStart = performance.now()
             try {
-                const status = await device.startECGPPGStream(duration, {
-                    onECG: (samples, packet) => addSamples(ecgStream, samples, packet),
-                    onPPG: (samples, packet) => addSamples(ppgStream, samples, packet),
-                    onQuality: (q) => {
-                        ecgQualityText.textContent = 'HR: ' + q.hr + ' · HRV: ' + q.hrv + ' · Quality: ' + q.quality
+                await device.startECGStream({
+                    durationSec,
+                    onECG: addECGSamples,
+                    onHR: (hr) => { ecg.hr = hr },
+                    onStatus: async (status) => {
+                        ecg.status = status
+                        // status 3 = the watch completed the measurement and sent the results, no more samples will come
+                        if (status.status === 3 && ecgStreaming) {
+                            ecgStreaming = false
+                            await device.stopECGStream()
+                            endECG('Measurement completed by the watch (' + (ecg.raw.length / ECG_FS).toFixed(1) + ' s of ECG)')
+                        }
                     },
-                    onEnd: () => endStreaming('Measurement ended by the watch')
+                    onEnd: () => endECG('Measurement ended by the watch')
                 })
-                streaming = true
-                stopECGPPGBtn.disabled = false
-                ecgStatusText.textContent = 'Streaming (' + JStyle2025.ECGPPG_START_STATUS[status] + '), ' + duration + ' s'
-                // fallback in case the watch does not notify the end of the measurement
-                autoStopTimer = setTimeout(async () => {
-                    if (!streaming) return
-                    await device.stopECGPPGStream()
-                    endStreaming('Measurement time elapsed')
-                }, (duration + 3) * 1000)
-                renderLoop()
+                ecgStreaming = true
+                stopECGBtn.disabled = false
+                ecgStatusText.textContent = 'Streaming'
+                ecgRenderLoop()
             } catch (err) {
                 console.error(err)
-                startECGPPGBtn.disabled = false
+                startECGBtn.disabled = false
                 ecgStatusText.textContent = 'Error: ' + (err && err.message ? err.message : 'no reply from the watch')
             }
         })
 
-        stopECGPPGBtn.addEventListener('click', async () => {
-            stopECGPPGBtn.disabled = true
-            await device.stopECGPPGStream()
-            endStreaming('Stopped')
+        stopECGBtn.addEventListener('click', async () => {
+            stopECGBtn.disabled = true
+            await device.stopECGStream()
+            endECG('Stopped')
         })
 
-        downloadECGPPGBtn.addEventListener('click', () => {
-            const lines = ['stream,arrival_ms,sample_index,value']
-            for (const s of [ecgStream, ppgStream]) {
-                for (let i = 0; i < s.values.length; i++) {
-                    lines.push(s.name + ',' + s.times[i].toFixed(1) + ',' + i + ',' + s.values[i])
-                }
+        // redraw when the display options change after the measurement
+        filterECGIn.addEventListener('change', () => { if (!ecgStreaming) drawECG() })
+        lowpassECGIn.addEventListener('change', () => {
+            refilterECG()
+            if (!ecgStreaming) drawECG()
+        })
+        invertECGIn.addEventListener('change', () => { if (!ecgStreaming) drawECG() })
+
+        downloadECGBtn.addEventListener('click', () => {
+            const lines = ['arrival_ms,sample_index,ecg']
+            for (let i = 0; i < ecg.raw.length; i++) {
+                lines.push(ecg.times[i].toFixed(1) + ',' + i + ',' + ecg.raw[i])
             }
             const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' })
             const a = document.createElement('a')
             a.href = URL.createObjectURL(blob)
-            a.download = 'ecg_ppg_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv'
+            a.download = 'ecg_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv'
             a.click()
             URL.revokeObjectURL(a.href)
         })
 
         window.addEventListener('beforeunload', () => {
-            if (streaming && device) device.stopECGPPGStream()
+            if (ecgStreaming && device) device.stopECGStream()
         })
 
     </script>

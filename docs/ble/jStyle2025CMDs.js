@@ -18,11 +18,10 @@ export default {
     getTemperatureHistory: 0x65, // 0x62, seems not to work
     getSPO2History: 0x66,
     getSleeepHistory: 0x53,
-    // live ECG + PPG streaming (SDK: OpenECGPPG / stopEcgPPg / GetEcgPpgStatus)
-    startECGPPG: 0x99, // starts ECG + PPG raw streaming for a given duration, replies with status
-    stopECGPPG: 0x98, // stops streaming, echoed back (also sent by the watch when it stops on its own)
-    getECGPPGStatus: 0x9c,
-    ecgQuality: 0x83, // periodic HR, HRV, signal quality during streaming
-    ecgRaw: 0xaa, // raw ECG samples, big-endian int16
-    ppgRaw: 0xab // raw PPG samples, big-endian int16
+    // live ECG (as iOS SDK StartECGMode / StopECGMode)
+    startECG: 0x99, // all zeros payload, echoed back
+    stopECG: 0x98, // all zeros payload, echoed back (also sent by the watch when it stops)
+    ecgRaw: 0xaa, // raw ECG samples, big-endian int16, 512 Hz
+    ecgHR: 0x83, // periodic HR, HRV, signal quality during the measurement
+    ecgStatus: 0x9c // status, status 3 carries the measurement results
 }
