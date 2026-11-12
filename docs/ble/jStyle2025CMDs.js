@@ -23,5 +23,7 @@ export default {
     stopECG: 0x98, // all zeros payload, echoed back (also sent by the watch when it stops)
     ecgRaw: 0xaa, // raw ECG samples, big-endian int16, 512 Hz
     ecgHR: 0x83, // periodic HR, HRV, signal quality during the measurement
-    ecgStatus: 0x9c // status, status 3 carries the measurement results
+    ecgStatus: 0x9c, // status, status 3 carries the measurement results
+    // on-demand measurement (SDK StartDeviceMeasurementWithType): [type, 1=start/0=stop], type 1 = HRV, 2 = HR, 3 = SpO2
+    measurement: 0x28 // replies: [0x28, type, HR, SpO2, HRV, stress, highBP, lowBP]
 }

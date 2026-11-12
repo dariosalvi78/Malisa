@@ -20,7 +20,7 @@ export class JStyle2025 extends BLEDevice {
 
     /**
     * @typedef {Object} UserProfile - user profile info
-    * @property {number} gender - 1 for male, 2 for female
+    * @property {number} gender - 1 for male, 0 for female (as in the Android SDK MyPersonalInfo)
     * @property {number} age - in years
     * @property {number} height - in cm
     * @property {number} weight - in kg
@@ -323,7 +323,7 @@ export class JStyle2025 extends BLEDevice {
      */
     async getTime () {
         let replyPromise = this.#waitForReply(CMDS.getTime).then((btvalues) => {
-            console.log('Got device time reply ' + btvalues)
+            console.log('Got device time reply ', btvalues)
             /** @type {DeviceTime} */
             let deviceTime = {
                 year: 2000 + this.#fromNumAsHexToNumAsDec(btvalues.getUint8(1)),
@@ -385,7 +385,7 @@ export class JStyle2025 extends BLEDevice {
         dateTimeConfig.setUint8(7, offset)
 
         let replyPromise = this.#waitForReply(CMDS.setTime).then((btvalues) => {
-            console.log('Got device time set OK ' + btvalues)
+            console.log('Got device time set OK ', btvalues)
             return
         })
         // first we send the command, then we wait
@@ -399,7 +399,7 @@ export class JStyle2025 extends BLEDevice {
      */
     async getUserProfile () {
         let replyPromise = this.#waitForReply(CMDS.getUserProfile).then((btvalues) => {
-            console.log('Got user profile ' + btvalues)
+            console.log('Got user profile', btvalues)
             const decoder = new TextDecoder()
             const userDeviceIdDV = new DataView(btvalues.buffer, 6, 5)
             const userDeviceId = decoder.decode(userDeviceIdDV)
@@ -436,7 +436,7 @@ export class JStyle2025 extends BLEDevice {
         userProfileDV.setUint8(4, profile.strideLength)
 
         let replyPromise = this.#waitForReply(CMDS.setUserProfile).then((btvalues) => {
-            console.log('Got user profile set OK ' + btvalues)
+            console.log('Got user profile set OK ', btvalues)
             return
         })
         // first we send the command, then we wait
@@ -476,7 +476,7 @@ export class JStyle2025 extends BLEDevice {
         automodeDV.setUint8(8, type) // type: 1=AutoHeartRate, 2=AutoSpo2, 3=AutoTemp, 4=AutoHrv
 
         let replyPromise = this.#waitForReply(CMDS.setAutoMode).then((btvalues) => {
-            console.log('Got automode set OK ' + btvalues)
+            console.log('Got automode set OK ', btvalues)
             return
         })
         await this.#sendCommand(CMDS.setAutoMode, automodeDV)
@@ -494,7 +494,7 @@ export class JStyle2025 extends BLEDevice {
         }
         let replyPromise = this.#waitForReply(CMDS.getAutoMode).then((btvalues) => {
             if (btvalues.getUint8(0) === CMDS.getAutoMode) {
-                console.log('Got automode reply ' + btvalues)
+                console.log('Got automode reply ', btvalues)
                 let enabled = btvalues.getUint8(1)
                 let startHour = this.#fromNumAsHexToNumAsDec(btvalues.getUint8(2)) // start hour
                 let startMinutes = this.#fromNumAsHexToNumAsDec(btvalues.getUint8(3)) // start minutes
@@ -534,7 +534,7 @@ export class JStyle2025 extends BLEDevice {
     */
     async clearData () {
         let replyPromise = this.#waitForReply(CMDS.clearData).then((btvalues) => {
-            console.log('Got clear data OK ' + btvalues)
+            console.log('Got clear data OK ', btvalues)
             return
         })
         await this.#sendCommand(CMDS.clearData)
@@ -1564,6 +1564,107 @@ export class JStyle2025 extends BLEDevice {
         } finally {
             this.#removeECGStreamCallbacks()
         }
+    }
+
+
+    /**
+     * @typedef {Object} MeasurementData
+     * @property {number} type - measurement type the packet refers to (1 = HRV, 2 = HR, 3 = SpO2)
+     * @property {number} hr - heart rate (bpm)
+     * @property {number} spo2 - blood oxygen (%)
+     * @property {number} hrv - HRV
+     * @property {number} stress - stress level
+     * @property {number} highBP - systolic blood pressure
+     * @property {number} lowBP - diastolic blood pressure
+     * @property {boolean} completed - true when the watch has finished the measurement (only HRV ends by itself)
+     * @property {string} raw - whole packet as hex, for debugging
+     *
+     * Observed behaviour (tests Nov 2026): the watch sends a packet about every second until stopped.
+     * Bytes 5-7 (stress, BP) hold the results of the last HRV measurement and byte 4 (HRV) holds a stale or zero
+     * value: none of them is updated by the HR and SpO2 measurements. In the HRV measurement byte 4 is 0 until the end; the last packet carries
+     * the new HRV, stress and BP and then the watch stops sending (no other end message).
+     * HR and SpO2 never end by themselves, and the stop command is not confirmed.
+     */
+
+    /**
+     * Measurement types of the on-demand measurement (SDK StartDeviceMeasurementWithType)
+     */
+    static MEASUREMENT_TYPES = { HRV: 1, HR: 2, SPO2: 3 }
+
+    /**
+     * Parses a 0x28 packet, as done by the Android SDK for HR and SpO2 (the HRV parsing is commented out in the SDK,
+     * the same layout is assumed)
+     * While each measurement carries the same fields, fields are updated depending on the measurement mode.
+     * For SPO2: Only HR and SPO2 are updated, at each packet.
+     * For HR: Only HR is updated, at each packet.
+     * For HRV: HR is updated at each packet, but HRV, stress and BP are only updated in the last packet.
+     * @param {DataView} btvalues - packet
+     * @returns {MeasurementData}
+     */
+    #parseMeasurement (btvalues) {
+        const byte = (i) => (i < btvalues.byteLength ? btvalues.getUint8(i) : 0)
+        const raw = []
+        for (let i = 0; i < btvalues.byteLength; i++) raw.push(btvalues.getUint8(i).toString(16).padStart(2, '0'))
+        return {
+            type: byte(1),
+            // The type of the measurement (1 = HRV, 2 = HR, 3 = SpO2)
+            // HRV is 0 during the HRV measurement and set in its last packet
+            completed: byte(1) === JStyle2025.MEASUREMENT_TYPES.HRV && byte(4) > 0,
+            hr: byte(2),
+            spo2: byte(3),
+            hrv: byte(4),
+            stress: byte(5),
+            highBP: byte(6),
+            lowBP: byte(7),
+            raw: raw.join(' ')
+        }
+    }
+
+    /**
+     * Starts an on-demand measurement on the watch.
+     * The watch measures by itself and reports values; the measurement runs until
+     * stopMeasurement() is called or the watch ends it.
+     * While each measurement carries the same fields, fields are updated depending on the measurement mode.
+     * For SPO2: Only HR and SPO2 are updated, at each packet.
+     * For HR: Only HR is updated, at each packet.
+     * For HRV: HR is updated at each packet, but HRV, stress and BP are only updated in the last packet.
+     * HRV measuerement ends by itself, while HR and SpO2 measurements must be stopped by the app.
+     * Warning: in HR and SPO2, the watch may stop sending packets after a few seconds, even if the measurement is not stopped. The watch does not confirm the stop command.
+     * @param {number} type - 1 = HRV, 2 = HR, 3 = SpO2 (see JStyle2025.MEASUREMENT_TYPES)
+     * @param {Function} [onData] - called with a MeasurementData object for each 0x28 packet received from the watch
+     * @returns {Promise<void>} - resolves when the command is sent
+     */
+    async startMeasurement (type, onData) {
+        if (![1, 2, 3].includes(type)) throw new Error('Measurement type must be 1 (HRV), 2 (HR) or 3 (SpO2)')
+        this.#streamCallbacks[CMDS.measurement] = (btvalues) => {
+            const data = this.#parseMeasurement(btvalues)
+            console.log('Measurement packet: ' + data.raw)
+            if (onData) onData(data)
+        }
+        const dv = new DataView(new ArrayBuffer(2))
+        dv.setUint8(0, type)
+        dv.setUint8(1, 1)
+        try {
+            await this.#sendCommand(CMDS.measurement, dv)
+        } catch (err) {
+            delete this.#streamCallbacks[CMDS.measurement]
+            throw err
+        }
+    }
+
+    /**
+     * Stops an on-demand measurement (0x28 [type, 0])
+     * @param {number} type - 1 = HRV, 2 = HR, 3 = SpO2
+     * The watch does not confirm the stop (tested on SpO2), so no reply is awaited.
+     * @returns {Promise<void>} - resolves when the command is sent
+     */
+    async stopMeasurement (type) {
+        const dv = new DataView(new ArrayBuffer(2))
+        dv.setUint8(0, type)
+        dv.setUint8(1, 0)
+        // ignore packets still in flight when the stop is sent (one usually arrives after it)
+        this.#streamCallbacks[CMDS.measurement] = () => { }
+        await this.#sendCommand(CMDS.measurement, dv)
     }
 
 }

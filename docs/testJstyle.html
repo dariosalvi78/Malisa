@@ -28,6 +28,11 @@
 
             <section>
                 <button id="connectJSBtn">Connect</button>
+                <p id="connectionText"></p>
+            </section>
+
+            <section>
+                <button id="downloadBtn">Download collected data</button>
             </section>
 
 
@@ -37,6 +42,7 @@
                 <button id="deviceMACBtn">Get device MAC</button>
                 <button id="deviceVerBtn">Get device ver</button>
                 <button id="batteryBtn">Get battery</button>
+                <p id="informationText"></p>
             </section>
 
             <section>
@@ -46,10 +52,23 @@
                 <button id="getUserProfileBtn">Get user profile</button>
                 <button id="setUserProfileBtn">Set user profile</button>
                 <button id="setAutoModeBtn">Set auto mode</button>
+                <div id="userProfileFields">
+                    <label>Gender
+                        <select id="profileGenderIn">
+                            <option value="1">Male</option>
+                            <option value="0">Female</option>
+                        </select>
+                    </label>
+                    <label>Age (years) <input type="number" id="profileAgeIn" min="1" max="255" step="1" value="45" /></label>
+                    <label>Height (cm) <input type="number" id="profileHeightIn" min="1" max="255" step="1" value="178" /></label>
+                    <label>Weight (kg) <input type="number" id="profileWeightIn" min="1" max="255" step="1" value="85" /></label>
+                    <label>Stride length (cm) <input type="number" id="profileStrideIn" min="1" max="255" step="1" value="70" /></label>
+                </div>
+                <p id="configurationText"></p>
             </section>
 
             <section>
-                <h4>Device data</h4>
+                <h4>Device stored data</h4>
                 <div>
                     Get data from:
                     <input type="date" id="fromDateIn" placeholder="Get data from" />
@@ -81,6 +100,22 @@
                 
                 <br>
                 <button style="background-color: #f44336;" id="clearDataBtn">Clear all data</button>
+
+                <p id="storedDataText"></p>
+            </section>
+
+            <section>
+                <h4>On-demand measurement</h4>
+                <p>The watch runs the measurement by itself and sends back the values about once per second, until stopped. Only the latest values are shown (– = not available yet).</p>
+                <select id="measureTypeIn" style="width: auto;">
+                    <option value="3" selected>SpO2</option>
+                    <option value="2">Heart rate</option>
+                    <option value="1">HRV</option>
+                </select>
+                <button id="startMeasureBtn">Start measurement</button>
+                <button style="background-color: #ec7e66;" id="stopMeasureBtn" disabled>Stop measurement</button>
+                <p id="measureStatusText">Not measuring</p>
+                <p id="measureValuesText"></p>
             </section>
 
             <section>
@@ -88,7 +123,6 @@
                 <p>Start the measurement and touch the electrode. Samples are stored and exported as sent by the watch; filter and invert only affect the plot.</p>
                 <button id="startECGBtn">Start ECG</button>
                 <button style="background-color: #ec7e66;" id="stopECGBtn" disabled>Stop ECG</button>
-                <button id="downloadECGBtn" disabled>Download CSV</button>
                 <label>Duration (s, experimental):
                     <input type="number" id="ecgDurationIn" min="1" max="65535" step="1" placeholder="watch default" style="width: 9em;" />
                 </label>
@@ -105,11 +139,6 @@
                 <canvas id="ecgCanvas"></canvas>
             </section>
 
-            <section>
-                <h4>Output</h4>
-                <p id="outputText"></p>
-            </section>
-
         </article>
     </main>
 
@@ -119,19 +148,185 @@
         import { JStyle2025 } from './ble/JStyle2025.js'
 
         const connectJSBtn = document.getElementById('connectJSBtn')
-        const fromDateIn = document.getElementById('fromDateIn')
-        
+
+        let device
+
+        const downloadBtn = document.getElementById('downloadBtn')
+        let collectedData = {}
+
+        downloadBtn.addEventListener('click', () => {
+            const blob = new Blob([JSON.stringify(collectedData)], { type: 'application/json' })
+            const a = document.createElement('a')
+            a.href = URL.createObjectURL(blob)
+            a.download = 'jstyle_' + new Date().toISOString().replace(/[:.]/g, '-') + '.json'
+            a.click()
+            URL.revokeObjectURL(a.href)
+        })
+
+        connectJSBtn.addEventListener('click', async () => {
+
+            if (!device || !device.isConnected()) {
+                connectionText.textContent = "Finding device."
+
+                let jstyle = await JStyle2025.findjStyleByName('J2113')
+                if (!jstyle) {
+                    connectionText.textContent = "No JStyle selected or found."
+                    return
+                }
+
+                device = jstyle
+                connectionText.textContent = "Connecting to device."
+
+                await device.connect(()=> {
+                    // disconnected callback
+                    if (ecgStreaming) endECG('Disconnected')
+                    if (measureType) endMeasurement('Disconnected')
+                    connectJSBtn.textContent = "Connect"
+                    connectionText.textContent = "Disconnected from device"
+                    device = null
+                })
+                if (device.isConnected()) {
+                    connectionText.textContent = "Connected to device"
+                    connectJSBtn.textContent = "Disconnect"
+                }
+            } else {
+                device.disconnect()
+                connectJSBtn.textContent = "Connect"
+                device = null
+            }
+        })
+
+        // ---------------- Device information ----------------
+
         const deviceNameBtn = document.getElementById('deviceNameBtn')
         const deviceMACBtn = document.getElementById('deviceMACBtn')
         const deviceVerBtn = document.getElementById('deviceVerBtn')
         const batteryBtn = document.getElementById('batteryBtn')
+        const informationText = document.getElementById('informationText')
+
+
+        deviceNameBtn.addEventListener('click', async () => {
+            let name = await device.getName()
+            collectedData = name
+            informationText.textContent = "Device name: " + name
+        })
+
+        deviceMACBtn.addEventListener('click', async () => {
+            let mac = await device.getMACAddress()
+            collectedData = mac
+
+            informationText.textContent = "Device MAC: " + mac
+        })
+
+        deviceVerBtn.addEventListener('click', async () => {
+            let version = await device.getDeviceVersion()
+            collectedData = version
+            informationText.textContent = "Version: " + version
+        })
+
+        batteryBtn.addEventListener('click', async () => {
+            let batt = await device.getBatteryLevel()
+            collectedData = batt
+            informationText.textContent = "Battery level: " + batt
+        })
+
+        // ---------------- Configuration ----------------
+
         const devicegetTimeBtn = document.getElementById('devicegetTimeBtn')
         const deviceSetTimeBtn = document.getElementById('deviceSetTimeBtn')
         const getUserProfileBtn = document.getElementById('getUserProfileBtn')
         const setUserProfileBtn = document.getElementById('setUserProfileBtn')
+        const profileGenderIn = document.getElementById('profileGenderIn')
+        const profileAgeIn = document.getElementById('profileAgeIn')
+        const profileHeightIn = document.getElementById('profileHeightIn')
+        const profileWeightIn = document.getElementById('profileWeightIn')
+        const profileStrideIn = document.getElementById('profileStrideIn')
         const setAutoModeBtn = document.getElementById('setAutoModeBtn')
-        
+        const configurationText = document.getElementById('configurationText')
+
+
+        devicegetTimeBtn.addEventListener('click', async () => {
+            let time = await device.getTime()
+            collectedData = time
+            configurationText.textContent = "Time: " + JSON.stringify(time)
+        })
+
+        deviceSetTimeBtn.addEventListener('click', async () => {
+            let now = new Date()
+            await device.setTime(now)
+            configurationText.textContent = "Time set: " + now
+        })
+
+        getUserProfileBtn.addEventListener('click', async () => {
+            let up = await device.getUserProfile()
+            collectedData = up
+            // show the values read from the watch in the input fields
+            profileGenderIn.value = String(up.gender)
+            profileAgeIn.value = up.age
+            profileHeightIn.value = up.height
+            profileWeightIn.value = up.weight
+            profileStrideIn.value = up.strideLength
+            configurationText.textContent = "User profile: " + JSON.stringify(up)
+        })
+
+        /**
+         * Reads the user profile from the input fields
+         * @returns {UserProfile}
+         * @throws {Error} if a field is empty or out of range (each value is sent as a single byte)
+         */
+        function readUserProfileInputs () {
+            const parseField = (input, name) => {
+                const value = Number(input.value)
+                if (input.value.trim() === '' || !Number.isInteger(value) || value < 1 || value > 255) {
+                    throw new Error(name + ' must be a whole number between 1 and 255')
+                }
+                return value
+            }
+            return {
+                gender: parseInt(profileGenderIn.value, 10),
+                age: parseField(profileAgeIn, 'Age'),
+                height: parseField(profileHeightIn, 'Height'),
+                weight: parseField(profileWeightIn, 'Weight'),
+                strideLength: parseField(profileStrideIn, 'Stride length')
+            }
+        }
+
+        setUserProfileBtn.addEventListener('click', async () => {
+            /**@type {UserProfile} **/
+            let up
+            try {
+                up = readUserProfileInputs()
+            } catch (err) {
+                configurationText.textContent = "User profile not set: " + err.message
+                return
+            }
+            await device.setUserProfile(up)
+            configurationText.textContent = "Use profile set: " + JSON.stringify(up)
+        })
+
+        setAutoModeBtn.addEventListener('click', async () => {
+            await device.setAutoMode(0, 0, 23, 59, 5, 1) // Enable auto HR every 5 minutes
+            const autoHR = await device.getAutoMode(1)
+            configurationText.textContent = "Auto HR enabled: " + JSON.stringify(autoHR)
+
+            await device.setAutoMode(0, 0, 23, 59, 5, 2) // Enable auto SPO2 every 5 minutes
+            const autoSPO2 = await device.getAutoMode(2)
+            configurationText.textContent += "Auto SPO2 enabled: " + JSON.stringify(autoSPO2)
+
+            await device.setAutoMode(0, 0, 23, 59, 5, 3) // Enable auto temperature every 5 minutes
+            const autoTemp = await device.getAutoMode(3)
+            configurationText.textContent += "Auto temperature enabled: " + JSON.stringify(autoTemp)
+
+            await device.setAutoMode(0, 0, 23, 59, 5, 4) // Enable auto HRV every 5 minutes
+            const autoHRV = await device.getAutoMode(4)
+            configurationText.textContent += "Auto HRV enabled: " + JSON.stringify(autoHRV)
+        })
+
+        // ---------------- Stored data ----------------
+
         const clearDataBtn = document.getElementById('clearDataBtn')
+        const fromDateIn = document.getElementById('fromDateIn')
+
         
         const dailyActivitySummaryHistoryBtn = document.getElementById('dailyActivitySummaryHistoryBtn')
         const deleteDailyActivitySummaryHistoryBtn = document.getElementById('deleteDailyActivitySummaryHistoryBtn')
@@ -157,206 +352,193 @@
         const getSleepHistoryBtn = document.getElementById('getSleepHistoryBtn')
         const deleteSleepHistoryBtn = document.getElementById('deleteSleepHistoryBtn')
 
-        const outputText = document.getElementById('outputText')
+        const storedDataText = document.getElementById('storedDataText')
 
-
-        let device
-
-
-        connectJSBtn.addEventListener('click', async () => {
-
-            if (!device || !device.isConnected()) {
-                let jstyle = await JStyle2025.findjStyleByName('J2113')
-                if (!jstyle) {
-                    outputText.textContent = "No JStyle selected."
-                    return
-                }
-
-                device = jstyle
-
-                await device.connect(()=> {
-                    // disconnected callback
-                    if (ecgStreaming) endECG('Disconnected')
-                    connectJSBtn.textContent = "Connect"
-                    outputText.textContent = "Disconnected from device"
-                    device = null
-                })
-                if (device.isConnected()) {
-                    connectJSBtn.textContent = "Disconnect"
-                }
-            } else {
-                device.disconnect()
-                connectJSBtn.textContent = "Connect"
-                device = null
-            }
-        })
-
-        deviceNameBtn.addEventListener('click', async () => {
-            let name = await device.getName()
-            outputText.textContent = "Device name: " + name
-        })
-
-        deviceMACBtn.addEventListener('click', async () => {
-            let mac = await device.getMACAddress()
-            outputText.textContent = "Device MAC: " + mac
-        })
-
-        deviceVerBtn.addEventListener('click', async () => {
-            let version = await device.getDeviceVersion()
-            outputText.textContent = "Version: " + version
-        })
-
-        batteryBtn.addEventListener('click', async () => {
-            let batt = await device.getBatteryLevel()
-            outputText.textContent = "Battery level: " + batt
-        })
-
-        devicegetTimeBtn.addEventListener('click', async () => {
-            let time = await device.getTime()
-            outputText.textContent = "Time: " + JSON.stringify(time)
-        })
-
-        deviceSetTimeBtn.addEventListener('click', async () => {
-            let now = new Date()
-            await device.setTime(now)
-            outputText.textContent = "Time set: " + now
-        })
-
-        getUserProfileBtn.addEventListener('click', async () => {
-            let up = await device.getUserProfile()
-            outputText.textContent = "User profile: " + JSON.stringify(up)
-        })
-
-        setUserProfileBtn.addEventListener('click', async () => {
-            /**@type {UserProfile} **/
-            let up = {
-                gender: 1,
-                age: 45,
-                height: 178,
-                weight: 85,
-                strideLength: 70
-            }
-            await device.setUserProfile(up)
-            outputText.textContent = "Use profile set: " + JSON.stringify(up)
-        })
-
-        setAutoModeBtn.addEventListener('click', async () => {
-            await device.setAutoMode(0, 0, 23, 59, 5, 1) // Enable auto HR every 5 minutes
-            const autoHR = await device.getAutoMode(1)
-            outputText.textContent = "Auto HR enabled: " + JSON.stringify(autoHR)
-
-            await device.setAutoMode(0, 0, 23, 59, 5, 2) // Enable auto SPO2 every 5 minutes
-            const autoSPO2 = await device.getAutoMode(2)
-            outputText.textContent += "Auto SPO2 enabled: " + JSON.stringify(autoSPO2)
-
-            await device.setAutoMode(0, 0, 23, 59, 5, 3) // Enable auto temperature every 5 minutes
-            const autoTemp = await device.getAutoMode(3)
-            outputText.textContent += "Auto temperature enabled: " + JSON.stringify(autoTemp)
-
-            await device.setAutoMode(0, 0, 23, 59, 5, 4) // Enable auto HRV every 5 minutes
-            const autoHRV = await device.getAutoMode(4)
-            outputText.textContent += "Auto HRV enabled: " + JSON.stringify(autoHRV)
-        })
 
         clearDataBtn.addEventListener('click', async () => {
             await device.clearData()
-            outputText.textContent = "Data wiped out"
+            storedDataText.textContent = "Data wiped out"
         })
 
         dailyActivitySummaryHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getDailyActivitySummaryHistory(fromDate)
-            outputText.textContent = "Activity history: " + JSON.stringify(history)
+
+            collectedData = history
+            storedDataText.textContent = "Activity history: " + JSON.stringify(history)
         })
 
         deleteDailyActivitySummaryHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteDailyActivitySummaryHistory(fromDate)
-            outputText.textContent = "Daily activity summary history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "Daily activity summary history deleted from: " + fromDate.toISOString()
         })
 
         detailedActivityHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getDetailedActivityHistory(fromDate)
-            outputText.textContent = "Detailed activity history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "Detailed activity history: " + JSON.stringify(history)
         })
 
         deleteDetailedActivityHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteDetailedActivityHistory(fromDate)
-            outputText.textContent = "Detailed activity history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "Detailed activity history deleted from: " + fromDate.toISOString()
         })
 
         detailedHRBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getDetailedHRHistory(fromDate)
-            outputText.textContent = "Detailed HR history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "Detailed HR history: " + JSON.stringify(history)
         })
 
         deleteDetailedHRHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteDetailedHRHistory(fromDate)
-            outputText.textContent = "Detailed HR history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "Detailed HR history deleted from: " + fromDate.toISOString()
         })
 
         getHRHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getHRHistory(fromDate)
-            outputText.textContent = "HR history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "HR history: " + JSON.stringify(history)
         })
 
         deleteHRHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteHRHistory(fromDate)
-            outputText.textContent = "HR history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "HR history deleted from: " + fromDate.toISOString()
         })
 
         getHRVHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getHRVHistory(fromDate)
-            outputText.textContent = "HRV history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "HRV history: " + JSON.stringify(history)
         })
 
         deleteHRVHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteHRVHistory(fromDate)
-            outputText.textContent = "HRV history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "HRV history deleted from: " + fromDate.toISOString()
         })
 
         getTemperatureHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getTemperatureHistory(fromDate)
-            outputText.textContent = "Temperature history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "Temperature history: " + JSON.stringify(history)
         })
 
         deleteTemperatureHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteTemperatureHistory(fromDate)
-            outputText.textContent = "Temperature history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "Temperature history deleted from: " + fromDate.toISOString()
         })
 
         getSPO2HistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getSPO2History(fromDate)
-            outputText.textContent = "SPO2 history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "SPO2 history: " + JSON.stringify(history)
         })
 
         deleteSPO2HistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteSPO2History(fromDate)
-            outputText.textContent = "SPO2 history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "SPO2 history deleted from: " + fromDate.toISOString()
         })
 
         getSleepHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             let history = await device.getSleepHistory(fromDate)
-            outputText.textContent = "Sleep history: " + JSON.stringify(history)
+            collectedData = history
+            storedDataText.textContent = "Sleep history: " + JSON.stringify(history)
         })
 
         deleteSleepHistoryBtn.addEventListener('click', async () => {
             let fromDate = fromDateIn.valueAsDate
             await device.deleteSleepHistory(fromDate)
-            outputText.textContent = "Sleep history deleted from: " + fromDate.toISOString()
+            storedDataText.textContent = "Sleep history deleted from: " + fromDate.toISOString()
+        })
+
+
+        // ---------------- On-demand measurement ----------------
+
+        const measureTypeIn = document.getElementById('measureTypeIn')
+        const startMeasureBtn = document.getElementById('startMeasureBtn')
+        const stopMeasureBtn = document.getElementById('stopMeasureBtn')
+        const measureStatusText = document.getElementById('measureStatusText')
+        const measureValuesText = document.getElementById('measureValuesText')
+        const MEASURE_NAMES = { 1: 'HRV', 2: 'HR', 3: 'SpO2' }
+        let measureType = null
+        let measurePackets = 0
+
+        async function showMeasurement (data) {
+            if (!measureType) return
+            collectedData.push(data)
+
+            measurePackets++
+            const v = (x, unit = '') => (x ? x + unit : '–')
+            // only show what the selected measurement updates: HRV, stress and BP are left over
+            // from the last HRV measurement in the HR and SpO2 packets
+            const parts = ['HR: ' + v(data.hr, ' bpm')]
+            if (data.type === 3) parts.push('SpO2: ' + v(data.spo2, ' %'))
+            if (data.type === 1) {
+                parts.push('HRV: ' + v(data.hrv))
+                parts.push('Stress: ' + v(data.stress))
+                parts.push('BP: ' + (data.highBP ? data.highBP + '/' + data.lowBP + ' mmHg' : '–'))
+            }
+            measureValuesText.textContent = parts.join(' | ') +
+                '  (updated ' + new Date().toLocaleTimeString() + ', ' + measurePackets + ' packets)'
+
+            if (data.completed) {
+                // the watch sends no end message, the last HRV packet carries the results
+                const type = measureType
+                measureType = null
+                await device.stopMeasurement(type)
+                endMeasurement('Measurement completed by the watch')
+            }
+        }
+
+        function endMeasurement (message) {
+            measureType = null
+            startMeasureBtn.disabled = false
+            measureTypeIn.disabled = false
+            stopMeasureBtn.disabled = true
+            measureStatusText.textContent = message
+        }
+
+        startMeasureBtn.addEventListener('click', async () => {
+            if (!device) {
+                measureStatusText.textContent = 'Connect to a device first'
+                return
+            }
+            const type = parseInt(measureTypeIn.value, 10)
+            measurePackets = 0
+            measureValuesText.textContent = 'Waiting for the first values…'
+            startMeasureBtn.disabled = true
+            measureTypeIn.disabled = true
+            measureType = type
+            try {
+                collectedData = []
+                await device.startMeasurement(type, showMeasurement)
+                stopMeasureBtn.disabled = false
+                measureStatusText.textContent = 'Measuring ' + MEASURE_NAMES[type] + '… keep the watch still on the wrist'
+            } catch (err) {
+                console.error(err)
+                endMeasurement('Error: ' + (err && err.message ? err.message : 'could not start the measurement'))
+            }
+        })
+
+        stopMeasureBtn.addEventListener('click', async () => {
+            stopMeasureBtn.disabled = true
+            // the watch does not confirm the stop, the last values stay on screen
+            await device.stopMeasurement(measureType)
+            endMeasurement('Stopped')
         })
 
 
@@ -364,7 +546,6 @@
 
         const startECGBtn = document.getElementById('startECGBtn')
         const stopECGBtn = document.getElementById('stopECGBtn')
-        const downloadECGBtn = document.getElementById('downloadECGBtn')
         const filterECGIn = document.getElementById('filterECGIn')
         const lowpassECGIn = document.getElementById('lowpassECGIn')
         const ecgDurationIn = document.getElementById('ecgDurationIn')
@@ -441,6 +622,13 @@
                 ecg.filtered.push(ecg.filter(x))
                 ecg.times.push(t)
             }
+
+            collectedData.ecg.push(...samples)
+        }
+
+        function addHRSamples (hr) {
+            ecg.hr = hr
+            collectedData.hr.push(hr)
         }
 
         function updateECGInfo () {
@@ -532,7 +720,6 @@
             ecgAnimationId = null
             startECGBtn.disabled = false
             stopECGBtn.disabled = true
-            downloadECGBtn.disabled = ecg.raw.length === 0
             ecgStatusText.textContent = message
             ecgRenderLoop() // final draw
         }
@@ -545,14 +732,19 @@
             const durationSec = ecgDurationIn.value ? parseInt(ecgDurationIn.value, 10) : undefined
             resetECG()
             startECGBtn.disabled = true
-            downloadECGBtn.disabled = true
             ecgStatusText.textContent = 'Starting…'
             ecgStart = performance.now()
+
+            collectedData = {
+                ecg: [],
+                hr: []
+            }
+
             try {
                 await device.startECGStream({
                     durationSec,
                     onECG: addECGSamples,
-                    onHR: (hr) => { ecg.hr = hr },
+                    onHR: addHRSamples,
                     onStatus: async (status) => {
                         ecg.status = status
                         // status 3 = the watch completed the measurement and sent the results, no more samples will come
@@ -589,21 +781,11 @@
         })
         invertECGIn.addEventListener('change', () => { if (!ecgStreaming) drawECG() })
 
-        downloadECGBtn.addEventListener('click', () => {
-            const lines = ['arrival_ms,sample_index,ecg']
-            for (let i = 0; i < ecg.raw.length; i++) {
-                lines.push(ecg.times[i].toFixed(1) + ',' + i + ',' + ecg.raw[i])
-            }
-            const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' })
-            const a = document.createElement('a')
-            a.href = URL.createObjectURL(blob)
-            a.download = 'ecg_' + new Date().toISOString().replace(/[:.]/g, '-') + '.csv'
-            a.click()
-            URL.revokeObjectURL(a.href)
-        })
+
 
         window.addEventListener('beforeunload', () => {
             if (ecgStreaming && device) device.stopECGStream()
+            if (measureType && device) device.stopMeasurement(measureType)
         })
 
     </script>
